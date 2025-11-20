@@ -58,7 +58,7 @@ func (ce *CallbackExecutor) ExecuteOutputCallbacks(ctx context.Context, callback
 
 // ExecuteErrorCallbacks executes error callbacks
 func (ce *CallbackExecutor) ExecuteErrorCallbacks(ctx context.Context, callbacks []ErrorCallback, agent Agent, input *AgentInput, err error) error {
-	for i, callback := range callbacks {
+	for _, callback := range callbacks {
 		if cbErr := callback(ctx, agent, input, err); cbErr != nil {
 			// Error in error callback - log but don't fail
 			// Could publish event here

@@ -130,10 +130,27 @@ func (e *llmExecutor) executeSimple(ctx context.Context, input *agent.AgentInput
 		modelInput.Context["available_tools"] = toolSchemas
 	}
 
+	// ADK-compatible: Execute BeforeModel callbacks
+	if len(e.llmAgent.beforeModel) > 0 {
+		executor := NewModelCallbackExecutor(false) // Don't stop on callback errors
+		if err := executor.ExecuteBefore(ctx, e.llmAgent.beforeModel, modelInput); err != nil {
+			// Log warning but continue (ADK-compatible behavior)
+			fmt.Printf("Warning: before_model callback: %v\n", err)
+		}
+	}
+
 	// Call LLM
 	modelOutput, err := e.llmAgent.model.Generate(ctx, modelInput)
 	if err != nil {
 		return nil, fmt.Errorf("LLM generation failed: %w", err)
+	}
+
+	// ADK-compatible: Execute AfterModel callbacks
+	if len(e.llmAgent.afterModel) > 0 {
+		executor := NewModelCallbackExecutor(false)
+		if err := executor.ExecuteAfter(ctx, e.llmAgent.afterModel, modelInput, modelOutput); err != nil {
+			fmt.Printf("Warning: after_model callback: %v\n", err)
+		}
 	}
 
 	// Check if LLM wants to use tools
@@ -147,9 +164,26 @@ func (e *llmExecutor) executeSimple(ctx context.Context, input *agent.AgentInput
 		// Call LLM again with tool result
 		followUpPrompt := e.buildPromptWithToolResult(input, toolCall, toolResult)
 		modelInput.Prompt = followUpPrompt
+
+		// ADK-compatible: Execute BeforeModel callbacks for follow-up call
+		if len(e.llmAgent.beforeModel) > 0 {
+			executor := NewModelCallbackExecutor(false)
+			if err := executor.ExecuteBefore(ctx, e.llmAgent.beforeModel, modelInput); err != nil {
+				fmt.Printf("Warning: before_model callback (follow-up): %v\n", err)
+			}
+		}
+
 		modelOutput, err = e.llmAgent.model.Generate(ctx, modelInput)
 		if err != nil {
 			return nil, fmt.Errorf("LLM generation after tool use failed: %w", err)
+		}
+
+		// ADK-compatible: Execute AfterModel callbacks for follow-up call
+		if len(e.llmAgent.afterModel) > 0 {
+			executor := NewModelCallbackExecutor(false)
+			if err := executor.ExecuteAfter(ctx, e.llmAgent.afterModel, modelInput, modelOutput); err != nil {
+				fmt.Printf("Warning: after_model callback (follow-up): %v\n", err)
+			}
 		}
 	}
 
@@ -190,10 +224,26 @@ func (e *llmExecutor) executeReAct(ctx context.Context, input *agent.AgentInput)
 			Context:     input.Context,
 		}
 
+		// ADK-compatible: Execute BeforeModel callbacks
+		if len(e.llmAgent.beforeModel) > 0 {
+			executor := NewModelCallbackExecutor(false)
+			if err := executor.ExecuteBefore(ctx, e.llmAgent.beforeModel, modelInput); err != nil {
+				fmt.Printf("Warning: before_model callback (ReAct iteration %d): %v\n", iterations, err)
+			}
+		}
+
 		// Call LLM for reasoning
 		modelOutput, err := e.llmAgent.model.Generate(ctx, modelInput)
 		if err != nil {
 			return nil, fmt.Errorf("ReAct iteration %d failed: %w", iterations, err)
+		}
+
+		// ADK-compatible: Execute AfterModel callbacks
+		if len(e.llmAgent.afterModel) > 0 {
+			executor := NewModelCallbackExecutor(false)
+			if err := executor.ExecuteAfter(ctx, e.llmAgent.afterModel, modelInput, modelOutput); err != nil {
+				fmt.Printf("Warning: after_model callback (ReAct iteration %d): %v\n", iterations, err)
+			}
 		}
 
 		conversationHistory = append(conversationHistory, modelOutput.Text)
@@ -387,10 +437,26 @@ func (e *llmExecutor) executeTool(ctx context.Context, toolName string, argument
 		args = map[string]interface{}{"input": arguments}
 	}
 
+	// ADK-compatible: Execute BeforeTool callbacks
+	if len(e.llmAgent.beforeTool) > 0 {
+		executor := NewToolCallbackExecutor(false)
+		if err := executor.ExecuteBefore(ctx, e.llmAgent.beforeTool, toolName, args); err != nil {
+			fmt.Printf("Warning: before_tool callback for %s: %v\n", toolName, err)
+		}
+	}
+
 	// Execute tool
 	result, err := tool.Handler(ctx, args)
 	if err != nil {
 		return "", fmt.Errorf("tool execution failed: %w", err)
+	}
+
+	// ADK-compatible: Execute AfterTool callbacks
+	if len(e.llmAgent.afterTool) > 0 {
+		executor := NewToolCallbackExecutor(false)
+		if err := executor.ExecuteAfter(ctx, e.llmAgent.afterTool, toolName, args, result); err != nil {
+			fmt.Printf("Warning: after_tool callback for %s: %v\n", toolName, err)
+		}
 	}
 
 	// Convert result to string
