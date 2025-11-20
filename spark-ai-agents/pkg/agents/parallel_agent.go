@@ -47,7 +47,8 @@ type ReduceFunc func(results []*agent.AgentOutput) (interface{}, error)
 // ParallelAgentConfig configures a parallel agent
 type ParallelAgentConfig struct {
 	Name          string
-	Agents        []agent.Agent
+	Agents        []agent.Agent // Legacy field
+	SubAgents     []agent.Agent // ADK-compatible field for sub-agents
 	Aggregation   AggregationType
 	ReduceFunc    ReduceFunc
 	Timeout       time.Duration
@@ -65,8 +66,15 @@ func NewParallelAgent(config ParallelAgentConfig) *ParallelAgent {
 		config.Timeout = 5 * time.Minute
 	}
 
+	// Support both Agents (legacy) and SubAgents (ADK-compatible) fields
+	childAgents := config.Agents
+	if len(config.SubAgents) > 0 {
+		// SubAgents takes precedence for ADK compatibility
+		childAgents = config.SubAgents
+	}
+
 	parallelAgent := &ParallelAgent{
-		childAgents:   config.Agents,
+		childAgents:   childAgents,
 		aggregation:   config.Aggregation,
 		reduceFunc:    config.ReduceFunc,
 		timeout:       config.Timeout,
@@ -85,6 +93,7 @@ func NewParallelAgent(config ParallelAgentConfig) *ParallelAgent {
 		Name:         config.Name,
 		Executor:     executor,
 		Dependencies: config.Dependencies,
+		SubAgents:    childAgents, // Register as sub-agents for hierarchy support
 	})
 
 	parallelAgent.BaseAgent = baseAgent
@@ -96,7 +105,7 @@ type parallelExecutor struct {
 	parallelAgent *ParallelAgent
 }
 
-func (e *parallelExecutor) Execute(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+func (e *parallelExecutor) Execute(ctx context.Context, ag agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	startTime := time.Now()
 
 	// Create timeout context
@@ -178,15 +187,14 @@ func (e *parallelExecutor) Execute(ctx context.Context, input *agent.AgentInput)
 	return &agent.AgentOutput{
 		Result: aggregatedResult,
 		Metadata: map[string]interface{}{
-			"pattern":          "Parallel",
-			"aggregation":      e.parallelAgent.aggregation,
-			"total_agents":     numAgents,
-			"successful":       successCount,
-			"execution_time":   time.Since(startTime).Seconds(),
+			"pattern":            "Parallel",
+			"aggregation":        e.parallelAgent.aggregation,
+			"total_agents":       numAgents,
+			"successful":         successCount,
+			"execution_time":     time.Since(startTime).Seconds(),
 			"individual_results": results,
-			"errors":           errors,
+			"errors":             errors,
 		},
-		Timestamp: time.Now(),
 	}, nil
 }
 

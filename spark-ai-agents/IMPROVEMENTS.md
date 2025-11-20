@@ -531,6 +531,13 @@ type Plugin interface {
 17. ✅ Agent type tests and documentation
 18. ✅ Complete ADK feature parity
 
+### Phase 3.6: Agent Hierarchy & ParallelAgent Enhancement
+19. ✅ Agent Hierarchy - Parent-child relationships, navigation methods
+20. ✅ AgentTool Pattern - Wrap agents as tools for LLM delegation
+21. ✅ ParallelAgent SubAgents - Full ADK orchestrator pattern
+22. ✅ Interleaved Event Streams - True parallel execution
+23. ✅ Comprehensive tests and documentation
+
 ### Phase 4: Polish (Weeks 7-8)
 19. Development UI
 20. Plugin architecture
