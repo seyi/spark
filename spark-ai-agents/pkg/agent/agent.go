@@ -45,10 +45,11 @@ type BaseAgent struct {
 	dependencies []Agent
 	partition    string
 	executor     AgentExecutor
+	outputKey    string // ADK-compatible: auto-store result to this key
 
 	// Agent hierarchy support (ADK-compatible)
-	parent    Agent      // Parent agent reference
-	subAgents []Agent    // Child agents
+	parent    Agent        // Parent agent reference
+	subAgents []Agent      // Child agents
 	mu        sync.RWMutex // Thread-safe access to hierarchy
 }
 
@@ -120,6 +121,7 @@ func NewAgent(config AgentConfig) *BaseAgent {
 		dependencies: config.Dependencies,
 		partition:    config.Partition,
 		executor:     config.Executor,
+		outputKey:    config.OutputKey,
 		subAgents:    make([]Agent, 0),
 	}
 
@@ -145,6 +147,7 @@ type AgentConfig struct {
 	Partition    string
 	Executor     AgentExecutor
 	SubAgents    []Agent // Child agents (ADK-compatible)
+	OutputKey    string  // ADK-compatible: auto-store result to this key in context
 }
 
 // Interface implementations for BaseAgent
@@ -159,7 +162,44 @@ func (a *BaseAgent) Execute(ctx context.Context, input *AgentInput) (*AgentOutpu
 	if a.executor == nil {
 		return nil, fmt.Errorf("no executor configured for agent %s", a.name)
 	}
-	return a.executor.Execute(ctx, a, input)
+
+	// ADK-compatible: Interpolate templates in instruction before execution
+	if input.Instruction != "" && HasTemplates(input.Instruction) {
+		interpolated, err := InterpolateInstruction(input.Instruction, input.Context)
+		if err != nil {
+			// Log warning but continue with interpolated result
+			// This matches ADK's lenient behavior
+			fmt.Printf("Warning: template interpolation for agent %s: %v\n", a.name, err)
+		}
+		input.Instruction = interpolated
+	}
+
+	// Execute the agent
+	output, err := a.executor.Execute(ctx, a, input)
+	if err != nil {
+		return nil, err
+	}
+
+	// ADK-compatible: Auto-store result to OutputKey if specified
+	if a.outputKey != "" && output != nil {
+		// Ensure Context map exists
+		if input.Context == nil {
+			input.Context = make(map[string]interface{})
+		}
+
+		// Store result to the specified key
+		// This enables subsequent agents to access the result by key
+		input.Context[a.outputKey] = output.Result
+
+		// Also store in output metadata for visibility
+		if output.Metadata == nil {
+			output.Metadata = make(map[string]interface{})
+		}
+		output.Metadata["output_key"] = a.outputKey
+		output.Metadata["stored_to_context"] = true
+	}
+
+	return output, nil
 }
 
 // Agent Hierarchy Methods (ADK-compatible)

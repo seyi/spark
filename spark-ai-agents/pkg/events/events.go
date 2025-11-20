@@ -72,6 +72,7 @@ const (
 	EventCheckpointRestored EventType = "checkpoint.restored"
 	EventMemoryStored       EventType = "memory.stored"
 	EventMemoryRetrieved    EventType = "memory.retrieved"
+	EventStateChanged       EventType = "state.changed" // ADK-compatible state change
 
 	// Job events
 	EventJobSubmitted EventType = "job.submitted"
@@ -407,4 +408,68 @@ func NewToolEvent(eventType EventType, toolName, agentID string, data interface{
 			"tool_name": toolName,
 		},
 	}
+}
+
+// ADK-Compatible State Change Event Support
+
+// StateChangeData contains state change details
+type StateChangeData struct {
+	Key       string
+	OldValue  interface{}
+	NewValue  interface{}
+	AgentName string
+	Partition string
+}
+
+// NewStateChangeEvent creates a state change event
+func NewStateChangeEvent(key string, oldValue, newValue interface{}, agentName, partition string) *BaseEvent {
+	return &BaseEvent{
+		EventType: EventStateChanged,
+		EventTime: time.Now(),
+		Agent:     agentName,
+		Session:   "",
+		EventData: StateChangeData{
+			Key:       key,
+			OldValue:  oldValue,
+			NewValue:  newValue,
+			AgentName: agentName,
+			Partition: partition,
+		},
+		Meta: map[string]interface{}{
+			"partition": partition,
+		},
+	}
+}
+
+// StateChangeCallback is ADK-compatible callback for state changes
+type StateChangeCallback func(key string, oldValue, newValue interface{})
+
+// OnStateChange registers an ADK-compatible state change callback
+// This is syntactic sugar for Subscribe(EventStateChanged, ...)
+func (m *MemoryEventBus) OnStateChange(callback StateChangeCallback) error {
+	return m.Subscribe(EventStateChanged, func(ctx context.Context, event Event) error {
+		if data, ok := event.Data().(StateChangeData); ok {
+			callback(data.Key, data.OldValue, data.NewValue)
+		}
+		return nil
+	})
+}
+
+// PublishStateChange is a convenience method for publishing state changes
+func (m *MemoryEventBus) PublishStateChange(key string, oldValue, newValue interface{}, agentName, partition string) error {
+	event := NewStateChangeEvent(key, oldValue, newValue, agentName, partition)
+	return m.Publish(event)
+}
+
+// Global event bus instance for convenience (ADK pattern)
+var GlobalEventBus = NewMemoryEventBus()
+
+// OnStateChange is a convenience function using the global event bus
+func OnStateChange(callback StateChangeCallback) error {
+	return GlobalEventBus.OnStateChange(callback)
+}
+
+// PublishStateChange is a convenience function using the global event bus
+func PublishStateChange(key string, oldValue, newValue interface{}, agentName, partition string) error {
+	return GlobalEventBus.PublishStateChange(key, oldValue, newValue, agentName, partition)
 }
