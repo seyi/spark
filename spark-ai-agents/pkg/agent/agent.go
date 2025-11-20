@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,6 +45,11 @@ type BaseAgent struct {
 	dependencies []Agent
 	partition    string
 	executor     AgentExecutor
+
+	// Agent hierarchy support (ADK-compatible)
+	parent    Agent      // Parent agent reference
+	subAgents []Agent    // Child agents
+	mu        sync.RWMutex // Thread-safe access to hierarchy
 }
 
 // AgentInput represents input to an agent task
@@ -106,7 +112,7 @@ type ToolHandler func(ctx context.Context, params map[string]interface{}) (inter
 
 // NewAgent creates a new agent with specified configuration
 func NewAgent(config AgentConfig) *BaseAgent {
-	return &BaseAgent{
+	agent := &BaseAgent{
 		id:           uuid.New().String(),
 		name:         config.Name,
 		description:  config.Description,
@@ -114,7 +120,20 @@ func NewAgent(config AgentConfig) *BaseAgent {
 		dependencies: config.Dependencies,
 		partition:    config.Partition,
 		executor:     config.Executor,
+		subAgents:    make([]Agent, 0),
 	}
+
+	// Set up sub-agent parent references (ADK-compatible)
+	if len(config.SubAgents) > 0 {
+		for _, subAgent := range config.SubAgents {
+			if err := agent.AddSubAgent(subAgent); err != nil {
+				// Log error but don't fail agent creation
+				fmt.Printf("Warning: failed to add sub-agent %s: %v\n", subAgent.Name(), err)
+			}
+		}
+	}
+
+	return agent
 }
 
 // AgentConfig holds configuration for creating an agent
@@ -125,6 +144,7 @@ type AgentConfig struct {
 	Dependencies []Agent
 	Partition    string
 	Executor     AgentExecutor
+	SubAgents    []Agent // Child agents (ADK-compatible)
 }
 
 // Interface implementations for BaseAgent
@@ -140,6 +160,208 @@ func (a *BaseAgent) Execute(ctx context.Context, input *AgentInput) (*AgentOutpu
 		return nil, fmt.Errorf("no executor configured for agent %s", a.name)
 	}
 	return a.executor.Execute(ctx, a, input)
+}
+
+// Agent Hierarchy Methods (ADK-compatible)
+
+// Parent returns the parent agent, or nil if this is a root agent
+func (a *BaseAgent) Parent() Agent {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.parent
+}
+
+// SubAgents returns the list of child agents
+func (a *BaseAgent) SubAgents() []Agent {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	// Return a copy to prevent external modification
+	agents := make([]Agent, len(a.subAgents))
+	copy(agents, a.subAgents)
+	return agents
+}
+
+// AddSubAgent adds a child agent and sets this agent as its parent
+// Returns error if the child already has a parent (single parent rule)
+func (a *BaseAgent) AddSubAgent(child Agent) error {
+	if child == nil {
+		return fmt.Errorf("cannot add nil sub-agent")
+	}
+
+	// Check if child is a BaseAgent (so we can set parent)
+	baseChild, ok := child.(*BaseAgent)
+	if !ok {
+		return fmt.Errorf("sub-agent must be *BaseAgent to support hierarchy")
+	}
+
+	// Check single parent rule
+	baseChild.mu.Lock()
+	defer baseChild.mu.Unlock()
+
+	if baseChild.parent != nil {
+		return fmt.Errorf("agent %s already has a parent %s (single parent rule)",
+			child.Name(), baseChild.parent.Name())
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Set parent reference
+	baseChild.parent = a
+
+	// Add to sub-agents list
+	a.subAgents = append(a.subAgents, child)
+
+	return nil
+}
+
+// RemoveSubAgent removes a child agent
+func (a *BaseAgent) RemoveSubAgent(child Agent) error {
+	if child == nil {
+		return fmt.Errorf("cannot remove nil sub-agent")
+	}
+
+	baseChild, ok := child.(*BaseAgent)
+	if !ok {
+		return fmt.Errorf("sub-agent must be *BaseAgent")
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Find and remove from sub-agents list
+	found := false
+	for i, sub := range a.subAgents {
+		if sub.ID() == child.ID() {
+			a.subAgents = append(a.subAgents[:i], a.subAgents[i+1:]...)
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("agent %s is not a sub-agent of %s", child.Name(), a.name)
+	}
+
+	// Clear parent reference
+	baseChild.mu.Lock()
+	baseChild.parent = nil
+	baseChild.mu.Unlock()
+
+	return nil
+}
+
+// FindAgent searches for a descendant agent by name
+// Returns the agent if found, or error if not found
+func (a *BaseAgent) FindAgent(name string) (Agent, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	// Check direct children
+	for _, child := range a.subAgents {
+		if child.Name() == name {
+			return child, nil
+		}
+	}
+
+	// Recursively search descendants
+	for _, child := range a.subAgents {
+		if baseChild, ok := child.(*BaseAgent); ok {
+			if found, err := baseChild.FindAgent(name); err == nil {
+				return found, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("agent %s not found in hierarchy", name)
+}
+
+// FindAgentByID searches for a descendant agent by ID
+func (a *BaseAgent) FindAgentByID(id string) (Agent, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	// Check direct children
+	for _, child := range a.subAgents {
+		if child.ID() == id {
+			return child, nil
+		}
+	}
+
+	// Recursively search descendants
+	for _, child := range a.subAgents {
+		if baseChild, ok := child.(*BaseAgent); ok {
+			if found, err := baseChild.FindAgentByID(id); err == nil {
+				return found, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("agent with ID %s not found in hierarchy", id)
+}
+
+// GetRoot returns the root agent in the hierarchy
+func (a *BaseAgent) GetRoot() Agent {
+	a.mu.RLock()
+	current := Agent(a)
+	a.mu.RUnlock()
+
+	for {
+		if baseAgent, ok := current.(*BaseAgent); ok {
+			parent := baseAgent.Parent()
+			if parent == nil {
+				return current
+			}
+			current = parent
+		} else {
+			return current
+		}
+	}
+}
+
+// GetPath returns the path from root to this agent
+func (a *BaseAgent) GetPath() []Agent {
+	path := []Agent{}
+	current := Agent(a)
+
+	for current != nil {
+		path = append([]Agent{current}, path...)
+		if baseAgent, ok := current.(*BaseAgent); ok {
+			current = baseAgent.Parent()
+		} else {
+			break
+		}
+	}
+
+	return path
+}
+
+// GetDepth returns the depth of this agent in the hierarchy (0 for root)
+func (a *BaseAgent) GetDepth() int {
+	depth := 0
+	current := Agent(a)
+
+	for current != nil {
+		if baseAgent, ok := current.(*BaseAgent); ok {
+			parent := baseAgent.Parent()
+			if parent == nil {
+				break
+			}
+			depth++
+			current = parent
+		} else {
+			break
+		}
+	}
+
+	return depth
+}
+
+// AddDependency adds a dependency agent (helper method)
+func (a *BaseAgent) AddDependency(dep Agent) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.dependencies = append(a.dependencies, dep)
 }
 
 // AgentTask represents a unit of work to be executed by an agent
