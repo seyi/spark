@@ -38,13 +38,16 @@ func NewAgentTool(ag agent.Agent) *AgentTool {
 	}
 }
 
-// AsTool converts the AgentTool to a tools.Tool
-func (at *AgentTool) AsTool() *tools.Tool {
-	return &tools.Tool{
+// AsTool converts the AgentTool to a tools.ToolDefinition
+func (at *AgentTool) AsTool() *tools.ToolDefinition {
+	return &tools.ToolDefinition{
 		Name:        fmt.Sprintf("call_%s", at.agent.Name()),
 		Description: fmt.Sprintf("Delegate task to %s agent: %s", at.agent.Name(), at.description),
-		Schema:      at.schema,
-		Handler:     at.execute,
+		Schema: &tools.ToolSchema{
+			InputSchema: at.schema,
+		},
+		Handler: at.execute,
+		Enabled: true,
 	}
 }
 
@@ -79,7 +82,7 @@ func (at *AgentTool) execute(ctx context.Context, params map[string]interface{})
 
 // WrapAgentAsTool converts an agent into a callable tool
 // Convenience function for quick agent-to-tool conversion
-func WrapAgentAsTool(ag agent.Agent) *tools.Tool {
+func WrapAgentAsTool(ag agent.Agent) *tools.ToolDefinition {
 	agentTool := NewAgentTool(ag)
 	return agentTool.AsTool()
 }
@@ -92,7 +95,7 @@ func WrapSubAgentsAsTools(parent *agent.BaseAgent) *tools.ToolRegistry {
 	subAgents := parent.SubAgents()
 	for _, subAgent := range subAgents {
 		tool := WrapAgentAsTool(subAgent)
-		registry.RegisterTool(tool)
+		registry.Register(tool)
 	}
 
 	return registry
@@ -100,27 +103,29 @@ func WrapSubAgentsAsTools(parent *agent.BaseAgent) *tools.ToolRegistry {
 
 // CreateTransferTool creates a special "transfer_to_agent" tool
 // This enables LLM-driven delegation by agent name
-func CreateTransferTool(parent *agent.BaseAgent) *tools.Tool {
-	return &tools.Tool{
+func CreateTransferTool(parent *agent.BaseAgent) *tools.ToolDefinition {
+	return &tools.ToolDefinition{
 		Name:        "transfer_to_agent",
 		Description: "Transfer control to another agent by name. Use this to delegate tasks to specialist agents.",
-		Schema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"agent_name": map[string]interface{}{
-					"type":        "string",
-					"description": "Name of the agent to transfer to",
+		Schema: &tools.ToolSchema{
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Name of the agent to transfer to",
+					},
+					"instruction": map[string]interface{}{
+						"type":        "string",
+						"description": "Task or instruction for the target agent",
+					},
+					"context": map[string]interface{}{
+						"type":        "object",
+						"description": "Additional context to pass to the agent",
+					},
 				},
-				"instruction": map[string]interface{}{
-					"type":        "string",
-					"description": "Task or instruction for the target agent",
-				},
-				"context": map[string]interface{}{
-					"type":        "object",
-					"description": "Additional context to pass to the agent",
-				},
+				"required": []string{"agent_name", "instruction"},
 			},
-			"required": []string{"agent_name", "instruction"},
 		},
 		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
 			// Extract agent name
@@ -160,28 +165,29 @@ func CreateTransferTool(parent *agent.BaseAgent) *tools.Tool {
 
 			return output.Result, nil
 		},
+		Enabled: true,
 	}
 }
 
 // CreateHierarchicalToolRegistry creates a tool registry for a parent agent
 // that includes all sub-agents as callable tools AND the transfer_to_agent tool
-func CreateHierarchicalToolRegistry(parent *agent.BaseAgent, additionalTools ...*tools.Tool) *tools.ToolRegistry {
+func CreateHierarchicalToolRegistry(parent *agent.BaseAgent, additionalTools ...*tools.ToolDefinition) *tools.ToolRegistry {
 	registry := tools.NewToolRegistry()
 
 	// Add transfer tool for dynamic delegation
 	transferTool := CreateTransferTool(parent)
-	registry.RegisterTool(transferTool)
+	registry.Register(transferTool)
 
 	// Add each sub-agent as a tool
 	subAgents := parent.SubAgents()
 	for _, subAgent := range subAgents {
 		tool := WrapAgentAsTool(subAgent)
-		registry.RegisterTool(tool)
+		registry.Register(tool)
 	}
 
 	// Add any additional tools
 	for _, tool := range additionalTools {
-		registry.RegisterTool(tool)
+		registry.Register(tool)
 	}
 
 	return registry
@@ -246,16 +252,18 @@ func (b *AgentToolBuilder) WithPostProcess(fn func(output *agent.AgentOutput) (i
 }
 
 // Build creates the tool
-func (b *AgentToolBuilder) Build() *tools.Tool {
+func (b *AgentToolBuilder) Build() *tools.ToolDefinition {
 	name := b.name
 	if name == "" {
 		name = fmt.Sprintf("call_%s", b.agent.Name())
 	}
 
-	return &tools.Tool{
+	return &tools.ToolDefinition{
 		Name:        name,
 		Description: b.description,
-		Schema:      b.schema,
+		Schema: &tools.ToolSchema{
+			InputSchema: b.schema,
+		},
 		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
 			// Pre-process
 			var input *agent.AgentInput
@@ -298,6 +306,7 @@ func (b *AgentToolBuilder) Build() *tools.Tool {
 
 			return output.Result, nil
 		},
+		Enabled: true,
 	}
 }
 

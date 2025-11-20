@@ -537,21 +537,21 @@ func TestFormatAgentsForPrompt(t *testing.T) {
 	prompt := FormatAgentsForPrompt(parent)
 
 	// Verify prompt contains agent names
-	if !contains(prompt, "greeter") {
+	if !containsString(prompt, "greeter") {
 		t.Error("Prompt missing 'greeter'")
 	}
 
-	if !contains(prompt, "calculator") {
+	if !containsString(prompt, "calculator") {
 		t.Error("Prompt missing 'calculator'")
 	}
 
-	if !contains(prompt, "transfer_to_agent") {
+	if !containsString(prompt, "transfer_to_agent") {
 		t.Error("Prompt missing transfer instruction")
 	}
 }
 
 // Helper function for string contains
-func contains(s, substr string) bool {
+func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && findSubstring(s, substr)
 }
 

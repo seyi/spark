@@ -77,7 +77,7 @@ type llmExecutor struct {
 	llmAgent *LlmAgent
 }
 
-func (e *llmExecutor) Execute(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+func (e *llmExecutor) Execute(ctx context.Context, ag agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	if e.llmAgent.useReAct {
 		return e.executeReAct(ctx, input)
 	}
@@ -135,7 +135,6 @@ func (e *llmExecutor) executeSimple(ctx context.Context, input *agent.AgentInput
 			"execution_time":  time.Since(startTime).Seconds(),
 			"finish_reason":   modelOutput.FinishReason,
 		},
-		Timestamp: time.Now(),
 	}, nil
 }
 
@@ -209,7 +208,6 @@ func (e *llmExecutor) executeReAct(ctx context.Context, input *agent.AgentInput)
 			"pattern":         "ReAct",
 			"conversation":    conversationHistory,
 		},
-		Timestamp: time.Now(),
 	}, nil
 }
 
@@ -339,7 +337,7 @@ func (e *llmExecutor) executeTool(ctx context.Context, toolName string, argument
 		return "", fmt.Errorf("tool registry not configured")
 	}
 
-	tool, err := e.llmAgent.toolRegistry.GetTool(toolName)
+	tool, err := e.llmAgent.toolRegistry.Get(toolName)
 	if err != nil {
 		return "", fmt.Errorf("tool not found: %s", toolName)
 	}
@@ -364,7 +362,7 @@ func (e *llmExecutor) executeTool(ctx context.Context, toolName string, argument
 	}
 
 	// Execute tool
-	result, err := tool.Execute(ctx, args)
+	result, err := tool.Handler(ctx, args)
 	if err != nil {
 		return "", fmt.Errorf("tool execution failed: %w", err)
 	}
@@ -403,14 +401,14 @@ func (e *llmExecutor) getToolSchemas() []map[string]interface{} {
 	}
 
 	for _, toolName := range e.llmAgent.enabledTools {
-		tool, err := e.llmAgent.toolRegistry.GetTool(toolName)
+		tool, err := e.llmAgent.toolRegistry.Get(toolName)
 		if err != nil {
 			continue
 		}
 
 		schema := map[string]interface{}{
-			"name":        tool.Name(),
-			"description": tool.Description(),
+			"name":        tool.Name,
+			"description": tool.Description,
 		}
 		schemas = append(schemas, schema)
 	}
@@ -426,11 +424,11 @@ func (e *llmExecutor) getToolDescriptions() string {
 
 	descriptions := []string{}
 	for _, toolName := range e.llmAgent.enabledTools {
-		tool, err := e.llmAgent.toolRegistry.GetTool(toolName)
+		tool, err := e.llmAgent.toolRegistry.Get(toolName)
 		if err != nil {
 			continue
 		}
-		descriptions = append(descriptions, fmt.Sprintf("- %s: %s", tool.Name(), tool.Description()))
+		descriptions = append(descriptions, fmt.Sprintf("- %s: %s", tool.Name, tool.Description))
 	}
 
 	return strings.Join(descriptions, "\n")

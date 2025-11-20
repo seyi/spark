@@ -73,7 +73,7 @@ type mapReduceExecutor struct {
 	mrAgent *MapReduceAgent
 }
 
-func (e *mapReduceExecutor) Execute(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+func (e *mapReduceExecutor) Execute(ctx context.Context, ag agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	startTime := time.Now()
 
 	// Create timeout context
@@ -115,7 +115,6 @@ func (e *mapReduceExecutor) Execute(ctx context.Context, input *agent.AgentInput
 			"map_results":     mapResults,
 			"map_errors":      mapErrors,
 		},
-		Timestamp: time.Now(),
 	}, nil
 }
 
@@ -437,7 +436,7 @@ type fanOutExecutor struct {
 	fanOutAgent *FanOutAgent
 }
 
-func (e *fanOutExecutor) Execute(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+func (e *fanOutExecutor) Execute(ctx context.Context, ag agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	startTime := time.Now()
 
 	// Split input
@@ -515,6 +514,5 @@ func (e *fanOutExecutor) Execute(ctx context.Context, input *agent.AgentInput) (
 			"splits":         len(splits),
 			"execution_time": time.Since(startTime).Seconds(),
 		},
-		Timestamp: time.Now(),
 	}, nil
 }
