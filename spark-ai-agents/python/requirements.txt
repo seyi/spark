@@ -1,0 +1,2 @@
+# Spark AI Agents Python Requirements
+# Minimal dependencies for core functionality
