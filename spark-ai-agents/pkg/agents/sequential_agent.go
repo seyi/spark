@@ -20,9 +20,10 @@ type SequentialAgent struct {
 // SequentialAgentConfig configures a sequential agent
 type SequentialAgentConfig struct {
 	Name         string
-	Agents       []agent.Agent
-	PassOutput   bool // Pass output from one agent to next
-	StopOnError  bool // Stop on first error vs continue
+	Agents       []agent.Agent // Legacy field
+	SubAgents    []agent.Agent // ADK-compatible field for sub-agents
+	PassOutput   bool          // Pass output from one agent to next
+	StopOnError  bool          // Stop on first error vs continue
 	Dependencies []agent.Agent
 }
 
@@ -32,8 +33,15 @@ func NewSequentialAgent(config SequentialAgentConfig) *SequentialAgent {
 		config.StopOnError = true // Default to stop on error
 	}
 
+	// Support both Agents (legacy) and SubAgents (ADK-compatible) fields
+	childAgents := config.Agents
+	if len(config.SubAgents) > 0 {
+		// SubAgents takes precedence for ADK compatibility
+		childAgents = config.SubAgents
+	}
+
 	seqAgent := &SequentialAgent{
-		childAgents: config.Agents,
+		childAgents: childAgents,
 		passOutput:  config.PassOutput,
 		stopOnError: config.StopOnError,
 	}
@@ -44,18 +52,19 @@ func NewSequentialAgent(config SequentialAgentConfig) *SequentialAgent {
 	}
 
 	// Wire up dependencies between child agents
-	wireDependencies(config.Agents)
+	wireDependencies(childAgents)
 
 	// Create base agent with the last agent as dependency
 	deps := config.Dependencies
-	if len(config.Agents) > 0 {
-		deps = append(deps, config.Agents[len(config.Agents)-1])
+	if len(childAgents) > 0 {
+		deps = append(deps, childAgents[len(childAgents)-1])
 	}
 
 	baseAgent := agent.NewAgent(agent.AgentConfig{
 		Name:         config.Name,
 		Executor:     executor,
 		Dependencies: deps,
+		SubAgents:    childAgents, // Register as sub-agents for hierarchy support
 	})
 
 	seqAgent.BaseAgent = baseAgent
@@ -77,7 +86,7 @@ type sequentialExecutor struct {
 	seqAgent *SequentialAgent
 }
 
-func (e *sequentialExecutor) Execute(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+func (e *sequentialExecutor) Execute(ctx context.Context, ag agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	startTime := time.Now()
 
 	results := make([]*agent.AgentOutput, 0, len(e.seqAgent.childAgents))
@@ -97,7 +106,7 @@ func (e *sequentialExecutor) Execute(ctx context.Context, input *agent.AgentInpu
 			results = append(results, &agent.AgentOutput{
 				Result:    nil,
 				Error:     err,
-				Timestamp: time.Now(),
+				
 				Metadata: map[string]interface{}{
 					"agent": childAgent.Name(),
 					"step":  i,
@@ -146,9 +155,8 @@ func (e *sequentialExecutor) Execute(ctx context.Context, input *agent.AgentInpu
 			"steps_completed": len(results),
 			"total_steps":     len(e.seqAgent.childAgents),
 			"execution_time":  time.Since(startTime).Seconds(),
-			"step_results":    results,
+			"step_results": results,
 		},
-		Timestamp: time.Now(),
 	}, nil
 }
 
@@ -291,7 +299,7 @@ type conditionalExecutor struct {
 	elseAgent agent.Agent
 }
 
-func (e *conditionalExecutor) Execute(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+func (e *conditionalExecutor) Execute(ctx context.Context, ag agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	// Get previous result from context
 	var previousOutput *agent.AgentOutput
 	if prevResult, ok := input.Context["previous_result"]; ok {
@@ -316,7 +324,7 @@ func (e *conditionalExecutor) Execute(ctx context.Context, input *agent.AgentInp
 	// No agent selected, pass through
 	return &agent.AgentOutput{
 		Result:    input,
-		Timestamp: time.Now(),
+		
 		Metadata: map[string]interface{}{
 			"pattern": "Conditional",
 			"skipped": true,

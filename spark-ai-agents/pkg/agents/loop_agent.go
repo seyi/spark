@@ -57,7 +57,8 @@ const (
 // LoopAgentConfig configures a loop agent
 type LoopAgentConfig struct {
 	Name           string
-	InnerAgent     agent.Agent
+	InnerAgent     agent.Agent   // For single agent loops (legacy)
+	SubAgents      []agent.Agent // ADK-compatible: loop over multiple agents sequentially
 	LoopType       LoopType
 	Condition      ConditionFunc
 	MaxIterations  int
@@ -78,8 +79,29 @@ func NewLoopAgent(config LoopAgentConfig) *LoopAgent {
 		config.Timeout = 10 * time.Minute
 	}
 
+	// Support both InnerAgent (legacy) and SubAgents (ADK-compatible) fields
+	var innerAgent agent.Agent
+	var subAgents []agent.Agent
+
+	if len(config.SubAgents) > 0 {
+		// ADK pattern: loop over multiple agents sequentially
+		// Auto-wrap SubAgents in a SequentialAgent
+		innerAgent = NewSequentialAgent(SequentialAgentConfig{
+			Name:       config.Name + "_sequence",
+			Agents:     config.SubAgents,
+			PassOutput: true, // Pass output between agents in the sequence
+		})
+		subAgents = config.SubAgents
+	} else {
+		innerAgent = config.InnerAgent
+		// If InnerAgent is set, treat it as the only sub-agent
+		if innerAgent != nil {
+			subAgents = []agent.Agent{innerAgent}
+		}
+	}
+
 	loopAgent := &LoopAgent{
-		innerAgent:     config.InnerAgent,
+		innerAgent:     innerAgent,
 		loopType:       config.LoopType,
 		condition:      config.Condition,
 		maxIterations:  config.MaxIterations,
@@ -96,6 +118,7 @@ func NewLoopAgent(config LoopAgentConfig) *LoopAgent {
 		Name:         config.Name,
 		Executor:     executor,
 		Dependencies: config.Dependencies,
+		SubAgents:    subAgents, // Register sub-agents in hierarchy
 	})
 
 	loopAgent.BaseAgent = baseAgent
@@ -107,7 +130,7 @@ type loopExecutor struct {
 	loopAgent *LoopAgent
 }
 
-func (e *loopExecutor) Execute(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+func (e *loopExecutor) Execute(ctx context.Context, ag agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	startTime := time.Now()
 
 	// Create timeout context
@@ -173,14 +196,21 @@ func (e *loopExecutor) Execute(ctx context.Context, input *agent.AgentInput) (*a
 			"all_results":       results,
 			"completed_early":   iteration < e.loopAgent.maxIterations,
 		},
-		Timestamp: time.Now(),
+		
 	}, nil
 }
 
 // evaluateCondition checks if loop should continue
 func (e *loopExecutor) evaluateCondition(output *agent.AgentOutput, iteration int) bool {
+	// ADK pattern: Check for escalate event in metadata
+	// If escalate is true, terminate the loop immediately
+	if escalate, ok := output.Metadata["escalate"].(bool); ok && escalate {
+		return false // Stop loop due to escalate event
+	}
+
+	// If no condition provided, continue until max iterations
 	if e.loopAgent.condition == nil {
-		return false // No condition means single iteration
+		return true // Continue to max iterations
 	}
 
 	result := e.loopAgent.condition(output, iteration)
