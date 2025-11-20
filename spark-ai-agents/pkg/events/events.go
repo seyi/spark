@@ -67,6 +67,12 @@ const (
 	EventToolCompleted EventType = "tool.completed"
 	EventToolFailed    EventType = "tool.failed"
 
+	// Agent transfer events (LLM-driven delegation)
+	EventTransferRequested EventType = "transfer.requested"
+	EventTransferCompleted EventType = "transfer.completed"
+	EventTransferFailed    EventType = "transfer.failed"
+	EventTransferValidated EventType = "transfer.validated"
+
 	// State management events
 	EventCheckpointCreated  EventType = "checkpoint.created"
 	EventCheckpointRestored EventType = "checkpoint.restored"
@@ -472,4 +478,105 @@ func OnStateChange(callback StateChangeCallback) error {
 // PublishStateChange is a convenience function using the global event bus
 func PublishStateChange(key string, oldValue, newValue interface{}, agentName, partition string) error {
 	return GlobalEventBus.PublishStateChange(key, oldValue, newValue, agentName, partition)
+}
+
+// --- Transfer Events (LLM-Driven Agent Delegation) ---
+
+// TransferRequestData contains transfer request details
+type TransferRequestData struct {
+	FromAgent     string
+	ToAgent       string
+	Reason        string
+	FromPartition string
+	Timestamp     time.Time
+}
+
+// TransferCompletedData contains transfer completion details
+type TransferCompletedData struct {
+	FromAgent     string
+	ToAgent       string
+	FromPartition string
+	ToPartition   string
+	Duration      time.Duration
+	TransferType  string // "local" or "remote"
+	Timestamp     time.Time
+}
+
+// TransferFailedData contains transfer failure details
+type TransferFailedData struct {
+	FromAgent     string
+	ToAgent       string
+	Reason        string
+	Error         string
+	FromPartition string
+	Timestamp     time.Time
+}
+
+// NewTransferRequestEvent creates a transfer request event
+func NewTransferRequestEvent(fromAgent, toAgent, reason, fromPartition string) *BaseEvent {
+	return &BaseEvent{
+		EventType: EventTransferRequested,
+		EventTime: time.Now(),
+		Agent:     fromAgent,
+		Session:   "",
+		EventData: TransferRequestData{
+			FromAgent:     fromAgent,
+			ToAgent:       toAgent,
+			Reason:        reason,
+			FromPartition: fromPartition,
+			Timestamp:     time.Now(),
+		},
+		Meta: map[string]interface{}{
+			"from_partition": fromPartition,
+			"target_agent":   toAgent,
+		},
+	}
+}
+
+// NewTransferCompletedEvent creates a transfer completed event
+func NewTransferCompletedEvent(fromAgent, toAgent, fromPartition, toPartition string, duration time.Duration, transferType string) *BaseEvent {
+	return &BaseEvent{
+		EventType: EventTransferCompleted,
+		EventTime: time.Now(),
+		Agent:     fromAgent,
+		Session:   "",
+		EventData: TransferCompletedData{
+			FromAgent:     fromAgent,
+			ToAgent:       toAgent,
+			FromPartition: fromPartition,
+			ToPartition:   toPartition,
+			Duration:      duration,
+			TransferType:  transferType,
+			Timestamp:     time.Now(),
+		},
+		Meta: map[string]interface{}{
+			"from_partition": fromPartition,
+			"to_partition":   toPartition,
+			"transfer_type":  transferType,
+			"duration_ms":    duration.Milliseconds(),
+		},
+	}
+}
+
+// NewTransferFailedEvent creates a transfer failed event
+func NewTransferFailedEvent(fromAgent, toAgent, reason, errorMsg, fromPartition string) *BaseEvent {
+	return &BaseEvent{
+		EventType: EventTransferFailed,
+		EventTime: time.Now(),
+		Agent:     fromAgent,
+		Session:   "",
+		EventData: TransferFailedData{
+			FromAgent:     fromAgent,
+			ToAgent:       toAgent,
+			Reason:        reason,
+			Error:         errorMsg,
+			FromPartition: fromPartition,
+			Timestamp:     time.Now(),
+		},
+		Meta: map[string]interface{}{
+			"from_partition": fromPartition,
+			"target_agent":   toAgent,
+			"error":          errorMsg,
+		},
+	}
 }
