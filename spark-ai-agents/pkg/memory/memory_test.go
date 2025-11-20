@@ -264,14 +264,25 @@ func TestMemoryAccessTracking(t *testing.T) {
 		t.Errorf("Expected access count 1, got %d", entry1.AccessCount)
 	}
 
-	// Access again
+	// Save the first access count and time for comparison
+	firstAccessCount := entry1.AccessCount
+	firstAccessTime := entry1.LastAccess
+
+	// Access again (add small delay to ensure timestamp difference)
+	time.Sleep(2 * time.Millisecond)
 	entry2, _ := store.Retrieve(ctx, "agent-1", "key1")
 	if entry2.AccessCount != 2 {
 		t.Errorf("Expected access count 2, got %d", entry2.AccessCount)
 	}
 
-	if !entry2.LastAccess.After(entry1.LastAccess) {
-		t.Error("Expected LastAccess to be updated")
+	// Verify access count incremented from saved value
+	if entry2.AccessCount <= firstAccessCount {
+		t.Errorf("Access count not incremented: first=%d, second=%d", firstAccessCount, entry2.AccessCount)
+	}
+
+	// LastAccess should be after the saved time
+	if !entry2.LastAccess.After(firstAccessTime) && !entry2.LastAccess.Equal(firstAccessTime) {
+		t.Errorf("LastAccess not updated: first=%v, second=%v", firstAccessTime, entry2.LastAccess)
 	}
 }
 

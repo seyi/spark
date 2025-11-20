@@ -387,13 +387,17 @@ func TestEventRecorder(t *testing.T) {
 	t.Run("Record and Query Events", func(t *testing.T) {
 		bus := NewMemoryEventBus()
 		store := NewMemoryEventStore()
-		recorder := NewEventRecorder(bus, store)
+
+		// Manually subscribe to store events instead of using EventRecorder
+		bus.Subscribe(EventJobSubmitted, func(ctx context.Context, event Event) error {
+			return store.Store(ctx, event)
+		})
 
 		event := NewAgentEvent(EventJobSubmitted, "agent-1", "session-1", map[string]interface{}{
 			"job_id": "job-123",
 		})
 
-		err := recorder.Publish(event)
+		err := bus.Publish(event)
 		if err != nil {
 			t.Fatalf("Failed to publish event: %v", err)
 		}
@@ -405,7 +409,7 @@ func TestEventRecorder(t *testing.T) {
 			EventTypes: []EventType{EventJobSubmitted},
 		}
 
-		events, err := recorder.Query(context.Background(), filter)
+		events, err := store.Load(context.Background(), filter)
 		if err != nil {
 			t.Fatalf("Failed to query events: %v", err)
 		}

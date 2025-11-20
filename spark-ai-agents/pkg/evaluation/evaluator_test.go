@@ -33,9 +33,9 @@ func (m *MockAgentCoordinator) SubmitJob(ctx context.Context, agentID string, in
 	time.Sleep(m.submitDelay)
 
 	output := &agent.AgentOutput{
-		AgentID: agentID,
-		Result:  input.Prompt, // Echo the input
-		Metrics: &agent.AgentMetrics{
+		TaskID: input.TaskID,
+		Result: input.Instruction, // Echo the input
+		Metrics: &agent.ExecutionMetrics{
 			Duration:   50 * time.Millisecond,
 			TokensUsed: 100,
 		},
@@ -203,7 +203,7 @@ func TestLatencyValidator(t *testing.T) {
 	t.Run("Within Latency Limit", func(t *testing.T) {
 		output := &agent.AgentOutput{
 			Result: "result",
-			Metrics: &agent.AgentMetrics{
+			Metrics: &agent.ExecutionMetrics{
 				Duration: 50 * time.Millisecond,
 			},
 		}
@@ -221,7 +221,7 @@ func TestLatencyValidator(t *testing.T) {
 	t.Run("Exceeds Latency Limit", func(t *testing.T) {
 		output := &agent.AgentOutput{
 			Result: "result",
-			Metrics: &agent.AgentMetrics{
+			Metrics: &agent.ExecutionMetrics{
 				Duration: 150 * time.Millisecond,
 			},
 		}
@@ -258,7 +258,7 @@ func TestTokenCountValidator(t *testing.T) {
 	t.Run("Within Token Limit", func(t *testing.T) {
 		output := &agent.AgentOutput{
 			Result: "result",
-			Metrics: &agent.AgentMetrics{
+			Metrics: &agent.ExecutionMetrics{
 				TokensUsed: 50,
 			},
 		}
@@ -276,7 +276,7 @@ func TestTokenCountValidator(t *testing.T) {
 	t.Run("Exceeds Token Limit", func(t *testing.T) {
 		output := &agent.AgentOutput{
 			Result: "result",
-			Metrics: &agent.AgentMetrics{
+			Metrics: &agent.ExecutionMetrics{
 				TokensUsed: 150,
 			},
 		}
@@ -301,7 +301,7 @@ func TestRunTestCase(t *testing.T) {
 		ID:   "test-1",
 		Name: "Simple Test",
 		Input: &agent.AgentInput{
-			Prompt: "test prompt",
+			Instruction: "test prompt",
 		},
 		ExpectedOutput: "test prompt",
 		Validators: []ValidatorConfig{
@@ -340,7 +340,7 @@ func TestRunSequential(t *testing.T) {
 				ID:   "test-1",
 				Name: "Test 1",
 				Input: &agent.AgentInput{
-					Prompt: "prompt 1",
+					Instruction: "prompt 1",
 				},
 				ExpectedOutput: "prompt 1",
 				Validators: []ValidatorConfig{
@@ -351,7 +351,7 @@ func TestRunSequential(t *testing.T) {
 				ID:   "test-2",
 				Name: "Test 2",
 				Input: &agent.AgentInput{
-					Prompt: "prompt 2",
+					Instruction: "prompt 2",
 				},
 				ExpectedOutput: "prompt 2",
 				Validators: []ValidatorConfig{
@@ -389,7 +389,7 @@ func TestRunParallel(t *testing.T) {
 				ID:   "test-1",
 				Name: "Test 1",
 				Input: &agent.AgentInput{
-					Prompt: "prompt 1",
+					Instruction: "prompt 1",
 				},
 				ExpectedOutput: "prompt 1",
 				Validators: []ValidatorConfig{
@@ -400,7 +400,7 @@ func TestRunParallel(t *testing.T) {
 				ID:   "test-2",
 				Name: "Test 2",
 				Input: &agent.AgentInput{
-					Prompt: "prompt 2",
+					Instruction: "prompt 2",
 				},
 				ExpectedOutput: "prompt 2",
 				Validators: []ValidatorConfig{
@@ -411,7 +411,7 @@ func TestRunParallel(t *testing.T) {
 				ID:   "test-3",
 				Name: "Test 3",
 				Input: &agent.AgentInput{
-					Prompt: "prompt 3",
+					Instruction: "prompt 3",
 				},
 				ExpectedOutput: "prompt 3",
 				Validators: []ValidatorConfig{
@@ -451,7 +451,7 @@ func TestRunEvaluation(t *testing.T) {
 				ID:   "test-1",
 				Name: "Pass Test",
 				Input: &agent.AgentInput{
-					Prompt: "test",
+					Instruction: "test",
 				},
 				ExpectedOutput: "test",
 				Validators: []ValidatorConfig{
@@ -462,7 +462,7 @@ func TestRunEvaluation(t *testing.T) {
 				ID:   "test-2",
 				Name: "Fail Test",
 				Input: &agent.AgentInput{
-					Prompt: "actual",
+					Instruction: "actual",
 				},
 				ExpectedOutput: "expected",
 				Validators: []ValidatorConfig{
@@ -514,7 +514,7 @@ func TestCalculateSummary(t *testing.T) {
 				Passed:   true,
 				Duration: 50 * time.Millisecond,
 				Output: &agent.AgentOutput{
-					Metrics: &agent.AgentMetrics{
+					Metrics: &agent.ExecutionMetrics{
 						TokensUsed: 100,
 					},
 				},
@@ -526,7 +526,7 @@ func TestCalculateSummary(t *testing.T) {
 				Passed:   true,
 				Duration: 100 * time.Millisecond,
 				Output: &agent.AgentOutput{
-					Metrics: &agent.AgentMetrics{
+					Metrics: &agent.ExecutionMetrics{
 						TokensUsed: 150,
 					},
 				},
@@ -539,7 +539,7 @@ func TestCalculateSummary(t *testing.T) {
 				Duration: 75 * time.Millisecond,
 				Error:    fmt.Errorf("test error"),
 				Output: &agent.AgentOutput{
-					Metrics: &agent.AgentMetrics{
+					Metrics: &agent.ExecutionMetrics{
 						TokensUsed: 50,
 					},
 				},
@@ -595,7 +595,7 @@ func TestLoadEvaluationSet(t *testing.T) {
 				ID:   "test-1",
 				Name: "Test Case 1",
 				Input: &agent.AgentInput{
-					Prompt: "test prompt",
+					Instruction: "test prompt",
 				},
 				ExpectedOutput: "expected output",
 				Validators: []ValidatorConfig{
@@ -677,7 +677,7 @@ func TestStopOnFailure(t *testing.T) {
 				ID:   "test-1",
 				Name: "Pass Test",
 				Input: &agent.AgentInput{
-					Prompt: "test",
+					Instruction: "test",
 				},
 				ExpectedOutput: "test",
 				Validators: []ValidatorConfig{
@@ -688,7 +688,7 @@ func TestStopOnFailure(t *testing.T) {
 				ID:   "test-2",
 				Name: "Fail Test",
 				Input: &agent.AgentInput{
-					Prompt: "actual",
+					Instruction: "actual",
 				},
 				ExpectedOutput: "expected",
 				Validators: []ValidatorConfig{
@@ -699,7 +699,7 @@ func TestStopOnFailure(t *testing.T) {
 				ID:   "test-3",
 				Name: "Should Not Run",
 				Input: &agent.AgentInput{
-					Prompt: "test",
+					Instruction: "test",
 				},
 				ExpectedOutput: "test",
 				Validators: []ValidatorConfig{

@@ -332,6 +332,3 @@ func (sm *StateManager) CheckpointManager() CheckpointManager {
 func (sm *StateManager) LineageTracker() *LineageTracker {
 	return sm.lineageTracker
 }
-
-// Ensure interfaces are implemented
-var _ io.Reader = (*MemoryStorage)(nil)

@@ -229,6 +229,11 @@ func (s *DAGScheduler) submitStage(job *Job, stage *agent.AgentStage) {
 		StartTime: time.Now(),
 	}
 
+	// Store stage result for tracking
+	s.mu.Lock()
+	s.stageResults[stage.ID] = stageResult
+	s.mu.Unlock()
+
 	// Submit all tasks in this stage
 	for _, task := range stage.Tasks {
 		task.State = agent.TaskScheduled

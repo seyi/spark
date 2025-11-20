@@ -199,7 +199,7 @@ func (e *Evaluator) RunEvaluation(ctx context.Context, evalSet *EvaluationSet) (
 	for _, result := range report.TestResults {
 		if result.Passed {
 			report.PassedTests++
-		} else if result.Error != nil {
+		} else {
 			report.FailedTests++
 		}
 	}
@@ -398,9 +398,10 @@ func (e *Evaluator) calculateSummary(report *EvaluationReport) *EvaluationSummar
 
 // PrintReport prints a formatted evaluation report
 func PrintReport(report *EvaluationReport) {
-	fmt.Println("\n" + "="*60)
+	separator := "============================================================"
+	fmt.Println("\n" + separator)
 	fmt.Printf("Evaluation Report: %s\n", report.SetName)
-	fmt.Println("="*60)
+	fmt.Println(separator)
 
 	fmt.Printf("\nTotal Tests: %d\n", report.TotalTests)
 	fmt.Printf("Passed: %d (%.1f%%)\n", report.PassedTests, report.Summary.PassRate*100)
@@ -435,7 +436,7 @@ func PrintReport(report *EvaluationReport) {
 		}
 	}
 
-	fmt.Println("\n" + "="*60 + "\n")
+	fmt.Println("\n" + separator + "\n")
 }
 
 // Built-in Validators
