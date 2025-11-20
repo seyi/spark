@@ -23,6 +23,12 @@ type LlmAgent struct {
 	temperature   float64
 	maxIterations int
 	useReAct      bool // Enable ReAct (Reasoning + Acting) pattern
+
+	// LLM-specific callbacks (ADK-compatible)
+	beforeModel []ModelCallback
+	afterModel  []ModelOutputCallback
+	beforeTool  []ToolCallback
+	afterTool   []ToolResultCallback
 }
 
 // LlmAgentConfig configures an LLM agent
@@ -35,6 +41,17 @@ type LlmAgentConfig struct {
 	MaxIterations int  // For ReAct loop
 	UseReAct      bool // Enable ReAct pattern
 	Dependencies  []agent.Agent
+
+	// Lifecycle callbacks (ADK-compatible)
+	BeforeExecute []agent.AgentCallback       // Called before agent execution
+	AfterExecute  []agent.AgentOutputCallback // Called after agent execution
+	OnError       []agent.ErrorCallback       // Called on execution error
+
+	// LLM-specific callbacks (ADK-compatible)
+	BeforeModel []ModelCallback       // Called before model invocation
+	AfterModel  []ModelOutputCallback // Called after model response
+	BeforeTool  []ToolCallback        // Called before tool execution
+	AfterTool   []ToolResultCallback  // Called after tool completion
 }
 
 // NewLlmAgent creates a new LLM agent
@@ -54,6 +71,12 @@ func NewLlmAgent(config LlmAgentConfig, modelProvider model.ModelProvider, toolR
 		temperature:   config.Temperature,
 		maxIterations: config.MaxIterations,
 		useReAct:      config.UseReAct,
+
+		// Initialize LLM-specific callbacks (ADK-compatible)
+		beforeModel: config.BeforeModel,
+		afterModel:  config.AfterModel,
+		beforeTool:  config.BeforeTool,
+		afterTool:   config.AfterTool,
 	}
 
 	// Create executor that uses LLM
@@ -61,11 +84,14 @@ func NewLlmAgent(config LlmAgentConfig, modelProvider model.ModelProvider, toolR
 		llmAgent: llmAgent,
 	}
 
-	// Create base agent
+	// Create base agent with agent-level callbacks (ADK-compatible)
 	baseAgent := agent.NewAgent(agent.AgentConfig{
-		Name:         config.Name,
-		Executor:     executor,
-		Dependencies: config.Dependencies,
+		Name:          config.Name,
+		Executor:      executor,
+		Dependencies:  config.Dependencies,
+		BeforeExecute: config.BeforeExecute,
+		AfterExecute:  config.AfterExecute,
+		OnError:       config.OnError,
 	})
 
 	llmAgent.BaseAgent = baseAgent

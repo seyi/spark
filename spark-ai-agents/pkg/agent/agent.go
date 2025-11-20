@@ -47,6 +47,11 @@ type BaseAgent struct {
 	executor     AgentExecutor
 	outputKey    string // ADK-compatible: auto-store result to this key
 
+	// Lifecycle callbacks (ADK-compatible)
+	beforeExecute []AgentCallback
+	afterExecute  []AgentOutputCallback
+	onError       []ErrorCallback
+
 	// Agent hierarchy support (ADK-compatible)
 	parent    Agent        // Parent agent reference
 	subAgents []Agent      // Child agents
@@ -123,6 +128,11 @@ func NewAgent(config AgentConfig) *BaseAgent {
 		executor:     config.Executor,
 		outputKey:    config.OutputKey,
 		subAgents:    make([]Agent, 0),
+
+		// Initialize callbacks (ADK-compatible)
+		beforeExecute: config.BeforeExecute,
+		afterExecute:  config.AfterExecute,
+		onError:       config.OnError,
 	}
 
 	// Set up sub-agent parent references (ADK-compatible)
@@ -148,6 +158,11 @@ type AgentConfig struct {
 	Executor     AgentExecutor
 	SubAgents    []Agent // Child agents (ADK-compatible)
 	OutputKey    string  // ADK-compatible: auto-store result to this key in context
+
+	// Lifecycle callbacks (ADK-compatible)
+	BeforeExecute []AgentCallback       // Called before agent execution
+	AfterExecute  []AgentOutputCallback // Called after successful execution
+	OnError       []ErrorCallback       // Called when execution errors occur
 }
 
 // Interface implementations for BaseAgent
@@ -161,6 +176,15 @@ func (a *BaseAgent) Partition() string    { return a.partition }
 func (a *BaseAgent) Execute(ctx context.Context, input *AgentInput) (*AgentOutput, error) {
 	if a.executor == nil {
 		return nil, fmt.Errorf("no executor configured for agent %s", a.name)
+	}
+
+	// ADK-compatible: Execute BeforeExecute callbacks
+	if len(a.beforeExecute) > 0 {
+		executor := NewCallbackExecutor(false) // Don't stop on callback errors
+		if err := executor.ExecuteAgentCallbacks(ctx, a.beforeExecute, a, input); err != nil {
+			// Log warning but continue (ADK-compatible behavior)
+			fmt.Printf("Warning: before_execute callback for agent %s: %v\n", a.name, err)
+		}
 	}
 
 	// ADK-compatible: Interpolate templates in instruction before execution
@@ -177,6 +201,13 @@ func (a *BaseAgent) Execute(ctx context.Context, input *AgentInput) (*AgentOutpu
 	// Execute the agent
 	output, err := a.executor.Execute(ctx, a, input)
 	if err != nil {
+		// ADK-compatible: Execute OnError callbacks
+		if len(a.onError) > 0 {
+			executor := NewCallbackExecutor(false)
+			if cbErr := executor.ExecuteErrorCallbacks(ctx, a.onError, a, input, err); cbErr != nil {
+				fmt.Printf("Warning: error callback for agent %s: %v\n", a.name, cbErr)
+			}
+		}
 		return nil, err
 	}
 
@@ -197,6 +228,14 @@ func (a *BaseAgent) Execute(ctx context.Context, input *AgentInput) (*AgentOutpu
 		}
 		output.Metadata["output_key"] = a.outputKey
 		output.Metadata["stored_to_context"] = true
+	}
+
+	// ADK-compatible: Execute AfterExecute callbacks
+	if len(a.afterExecute) > 0 {
+		executor := NewCallbackExecutor(false)
+		if err := executor.ExecuteOutputCallbacks(ctx, a.afterExecute, a, input, output); err != nil {
+			fmt.Printf("Warning: after_execute callback for agent %s: %v\n", a.name, err)
+		}
 	}
 
 	return output, nil
