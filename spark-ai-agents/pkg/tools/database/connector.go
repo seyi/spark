@@ -407,3 +407,27 @@ func (s *SparkSQLConnector) GetConnectionInfo() map[string]interface{} {
 		"cache_misses":       stats.CacheMisses,
 	}
 }
+
+// StreamQuery executes a SQL query and streams results via channel.
+// Memory-efficient for large result sets.
+func (s *SparkSQLConnector) StreamQuery(ctx context.Context, query string, config *StreamConfig) (*QueryResultStream, error) {
+	// Validate query based on security settings
+	if err := s.ValidateQuery(query); err != nil {
+		return nil, fmt.Errorf("query validation failed: %w", err)
+	}
+
+	// Execute through Spark session
+	return s.session.StreamQuery(ctx, query, config)
+}
+
+// ExecuteQueryPaginated executes a SQL query with pagination.
+// Alternative to streaming for discrete pages.
+func (s *SparkSQLConnector) ExecuteQueryPaginated(ctx context.Context, query string, config *PaginationConfig) (*QueryResultPage, error) {
+	// Validate query based on security settings
+	if err := s.ValidateQuery(query); err != nil {
+		return nil, fmt.Errorf("query validation failed: %w", err)
+	}
+
+	// Execute through Spark session
+	return s.session.ExecuteQueryPaginated(ctx, query, config)
+}

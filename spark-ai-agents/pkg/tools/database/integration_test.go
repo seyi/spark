@@ -578,3 +578,331 @@ func TestDatabaseToolset(t *testing.T) {
 		t.Logf("Query result: %d rows, %.3fs", queryResult.RowCount, queryResult.ExecutionTime)
 	})
 }
+
+// TestStreamQuery tests streaming large result sets.
+func TestStreamQuery(t *testing.T) {
+	ctx := context.Background()
+
+	postgresContainer, err := postgres.Run(ctx,
+		"postgres:15-alpine",
+		postgres.WithDatabase("testdb"),
+		postgres.WithUsername("testuser"),
+		postgres.WithPassword("testpass"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to start PostgreSQL container: %v", err)
+	}
+	defer testcontainers.TerminateContainer(postgresContainer)
+
+	connStr, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("Failed to get connection string: %v", err)
+	}
+
+	config := &DatabaseConfig{
+		Type:             DatabaseTypePostgreSQL,
+		ConnectionString: connStr,
+		WriteMode:        WriteModeReadOnly,
+		QueryTimeout:     30 * time.Second,
+	}
+
+	connector, _ := NewSparkSQLConnector(config)
+	connector.Connect(ctx)
+	defer connector.Disconnect(ctx)
+
+	// Stream query with 100 rows
+	streamConfig := &StreamConfig{
+		BufferSize: 10,
+		BatchSize:  20,
+		MaxRows:    0, // unlimited
+	}
+
+	stream, err := connector.StreamQuery(ctx, "SELECT generate_series(1, 100) as num", streamConfig)
+	if err != nil {
+		t.Fatalf("StreamQuery failed: %v", err)
+	}
+	defer stream.Cancel()
+
+	// Count rows
+	rowCount := 0
+	for row := range stream.Rows {
+		rowCount++
+		if rowCount == 1 {
+			// Check first row
+			if row["num"] != int64(1) {
+				t.Errorf("Expected first row num=1, got %v", row["num"])
+			}
+		}
+	}
+
+	// Check for errors
+	if err := <-stream.Errors; err != nil {
+		t.Fatalf("Stream error: %v", err)
+	}
+
+	if rowCount != 100 {
+		t.Errorf("Expected 100 rows, got %d", rowCount)
+	}
+
+	if !stream.Metadata.Completed {
+		t.Error("Stream should be marked as completed")
+	}
+
+	t.Logf("Streamed %d rows in %.3fs", rowCount, stream.Metadata.CompletedAt.Sub(stream.Metadata.StartTime).Seconds())
+}
+
+// TestStreamQueryCancellation tests early cancellation of streaming.
+func TestStreamQueryCancellation(t *testing.T) {
+	ctx := context.Background()
+
+	postgresContainer, err := postgres.Run(ctx,
+		"postgres:15-alpine",
+		postgres.WithDatabase("testdb"),
+		postgres.WithUsername("testuser"),
+		postgres.WithPassword("testpass"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to start PostgreSQL container: %v", err)
+	}
+	defer testcontainers.TerminateContainer(postgresContainer)
+
+	connStr, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("Failed to get connection string: %v", err)
+	}
+
+	config := &DatabaseConfig{
+		Type:             DatabaseTypePostgreSQL,
+		ConnectionString: connStr,
+		WriteMode:        WriteModeReadOnly,
+	}
+
+	connector, _ := NewSparkSQLConnector(config)
+	connector.Connect(ctx)
+	defer connector.Disconnect(ctx)
+
+	stream, err := connector.StreamQuery(ctx, "SELECT generate_series(1, 1000) as num", nil)
+	if err != nil {
+		t.Fatalf("StreamQuery failed: %v", err)
+	}
+
+	// Read only first 10 rows then cancel
+	rowCount := 0
+	for row := range stream.Rows {
+		rowCount++
+		if rowCount >= 10 {
+			stream.Cancel() // Cancel early
+			break
+		}
+		_ = row
+	}
+
+	// Should have stopped at 10
+	if rowCount != 10 {
+		t.Errorf("Expected to read 10 rows before cancel, got %d", rowCount)
+	}
+
+	t.Logf("Successfully cancelled stream after %d rows", rowCount)
+}
+
+// TestStreamQueryMaxRows tests MaxRows limit.
+func TestStreamQueryMaxRows(t *testing.T) {
+	ctx := context.Background()
+
+	postgresContainer, err := postgres.Run(ctx,
+		"postgres:15-alpine",
+		postgres.WithDatabase("testdb"),
+		postgres.WithUsername("testuser"),
+		postgres.WithPassword("testpass"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to start PostgreSQL container: %v", err)
+	}
+	defer testcontainers.TerminateContainer(postgresContainer)
+
+	connStr, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("Failed to get connection string: %v", err)
+	}
+
+	config := &DatabaseConfig{
+		Type:             DatabaseTypePostgreSQL,
+		ConnectionString: connStr,
+		WriteMode:        WriteModeReadOnly,
+	}
+
+	connector, _ := NewSparkSQLConnector(config)
+	connector.Connect(ctx)
+	defer connector.Disconnect(ctx)
+
+	// Set MaxRows to 50
+	streamConfig := &StreamConfig{
+		MaxRows: 50,
+	}
+
+	stream, err := connector.StreamQuery(ctx, "SELECT generate_series(1, 1000) as num", streamConfig)
+	if err != nil {
+		t.Fatalf("StreamQuery failed: %v", err)
+	}
+	defer stream.Cancel()
+
+	rowCount := 0
+	for range stream.Rows {
+		rowCount++
+	}
+
+	// Check for errors
+	<-stream.Errors
+
+	// Should be limited to 50
+	if rowCount != 50 {
+		t.Errorf("Expected 50 rows (MaxRows limit), got %d", rowCount)
+	}
+
+	t.Logf("Successfully limited stream to %d rows", rowCount)
+}
+
+// TestPaginatedQuery tests paginated query execution.
+func TestPaginatedQuery(t *testing.T) {
+	ctx := context.Background()
+
+	postgresContainer, err := postgres.Run(ctx,
+		"postgres:15-alpine",
+		postgres.WithDatabase("testdb"),
+		postgres.WithUsername("testuser"),
+		postgres.WithPassword("testpass"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to start PostgreSQL container: %v", err)
+	}
+	defer testcontainers.TerminateContainer(postgresContainer)
+
+	connStr, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("Failed to get connection string: %v", err)
+	}
+
+	config := &DatabaseConfig{
+		Type:             DatabaseTypePostgreSQL,
+		ConnectionString: connStr,
+		WriteMode:        WriteModeReadOnly,
+	}
+
+	connector, _ := NewSparkSQLConnector(config)
+	connector.Connect(ctx)
+	defer connector.Disconnect(ctx)
+
+	// Test pagination
+	paginationConfig := &PaginationConfig{
+		PageSize: 25,
+		Page:     1,
+	}
+
+	// First page
+	page1, err := connector.ExecuteQueryPaginated(ctx, "SELECT generate_series(1, 100) as num", paginationConfig)
+	if err != nil {
+		t.Fatalf("ExecuteQueryPaginated failed: %v", err)
+	}
+
+	if page1.RowCount != 25 {
+		t.Errorf("Expected 25 rows in page 1, got %d", page1.RowCount)
+	}
+
+	if !page1.HasNextPage {
+		t.Error("Page 1 should have next page")
+	}
+
+	if page1.Page != 1 {
+		t.Errorf("Expected page 1, got %d", page1.Page)
+	}
+
+	// Check first row of page 1
+	if len(page1.Rows) > 0 {
+		if page1.Rows[0]["num"] != int64(1) {
+			t.Errorf("Expected first row of page 1 to have num=1, got %v", page1.Rows[0]["num"])
+		}
+	}
+
+	// Second page
+	paginationConfig.Page = 2
+	page2, err := connector.ExecuteQueryPaginated(ctx, "SELECT generate_series(1, 100) as num", paginationConfig)
+	if err != nil {
+		t.Fatalf("ExecuteQueryPaginated page 2 failed: %v", err)
+	}
+
+	if page2.RowCount != 25 {
+		t.Errorf("Expected 25 rows in page 2, got %d", page2.RowCount)
+	}
+
+	// Check first row of page 2 (should be num=26)
+	if len(page2.Rows) > 0 {
+		if page2.Rows[0]["num"] != int64(26) {
+			t.Errorf("Expected first row of page 2 to have num=26, got %v", page2.Rows[0]["num"])
+		}
+	}
+
+	// Last page (page 4)
+	paginationConfig.Page = 4
+	page4, err := connector.ExecuteQueryPaginated(ctx, "SELECT generate_series(1, 100) as num", paginationConfig)
+	if err != nil {
+		t.Fatalf("ExecuteQueryPaginated page 4 failed: %v", err)
+	}
+
+	if page4.RowCount != 25 {
+		t.Errorf("Expected 25 rows in page 4, got %d", page4.RowCount)
+	}
+
+	if page4.HasNextPage {
+		t.Error("Page 4 should not have next page")
+	}
+
+	t.Logf("Successfully paginated 100 rows into 4 pages of 25 rows each")
+}
+
+// TestPaginationWithTotalCount tests pagination with total count.
+func TestPaginationWithTotalCount(t *testing.T) {
+	ctx := context.Background()
+
+	postgresContainer, err := postgres.Run(ctx,
+		"postgres:15-alpine",
+		postgres.WithDatabase("testdb"),
+		postgres.WithUsername("testuser"),
+		postgres.WithPassword("testpass"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to start PostgreSQL container: %v", err)
+	}
+	defer testcontainers.TerminateContainer(postgresContainer)
+
+	connStr, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("Failed to get connection string: %v", err)
+	}
+
+	config := &DatabaseConfig{
+		Type:             DatabaseTypePostgreSQL,
+		ConnectionString: connStr,
+		WriteMode:        WriteModeReadOnly,
+	}
+
+	connector, _ := NewSparkSQLConnector(config)
+	connector.Connect(ctx)
+	defer connector.Disconnect(ctx)
+
+	paginationConfig := &PaginationConfig{
+		PageSize:          20,
+		Page:              1,
+		IncludeTotalCount: true,
+	}
+
+	page, err := connector.ExecuteQueryPaginated(ctx, "SELECT generate_series(1, 75) as num", paginationConfig)
+	if err != nil {
+		t.Fatalf("ExecuteQueryPaginated failed: %v", err)
+	}
+
+	if page.TotalRows != 75 {
+		t.Errorf("Expected total rows 75, got %d", page.TotalRows)
+	}
+
+	t.Logf("Page 1 of %d total rows (%.1f pages)", page.TotalRows, float64(page.TotalRows)/float64(page.PageSize))
+}
