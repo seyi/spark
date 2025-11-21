@@ -1880,3 +1880,522 @@ func TestFlowWithToolCallbacks(t *testing.T) {
 		}
 	})
 }
+
+// ============================================================================
+// Live Session Manager Tests
+// ============================================================================
+
+func TestLiveSessionManager(t *testing.T) {
+	t.Run("NewLiveSessionManager", func(t *testing.T) {
+		manager := NewLiveSessionManager(nil)
+		if manager == nil {
+			t.Fatal("manager should not be nil")
+		}
+		if len(manager.ListActiveSessions()) != 0 {
+			t.Error("should have no sessions initially")
+		}
+	})
+
+	t.Run("CreateSession", func(t *testing.T) {
+		manager := NewLiveSessionManager(nil)
+
+		ctx := context.Background()
+		input := &agent.AgentInput{Instruction: "test"}
+		invCtx := NewInvocationContext(ctx, input)
+
+		session := manager.CreateSession(invCtx)
+		if session == nil {
+			t.Fatal("session should not be nil")
+		}
+		if session.ID == "" {
+			t.Error("session should have an ID")
+		}
+		if session.Closed {
+			t.Error("session should not be closed initially")
+		}
+		if session.RequestQueue == nil {
+			t.Error("session should have a request queue")
+		}
+
+		sessions := manager.ListActiveSessions()
+		if len(sessions) != 1 {
+			t.Errorf("expected 1 session, got %d", len(sessions))
+		}
+	})
+
+	t.Run("GetSession", func(t *testing.T) {
+		manager := NewLiveSessionManager(nil)
+
+		ctx := context.Background()
+		invCtx := NewInvocationContext(ctx, &agent.AgentInput{})
+
+		session := manager.CreateSession(invCtx)
+
+		retrieved, ok := manager.GetSession(session.ID)
+		if !ok {
+			t.Error("should find created session")
+		}
+		if retrieved.ID != session.ID {
+			t.Error("retrieved session should match created session")
+		}
+
+		_, ok = manager.GetSession("nonexistent")
+		if ok {
+			t.Error("should not find nonexistent session")
+		}
+	})
+
+	t.Run("CloseSession", func(t *testing.T) {
+		manager := NewLiveSessionManager(nil)
+
+		ctx := context.Background()
+		invCtx := NewInvocationContext(ctx, &agent.AgentInput{})
+
+		session := manager.CreateSession(invCtx)
+		sessionID := session.ID
+
+		err := manager.CloseSession(sessionID)
+		if err != nil {
+			t.Errorf("close should succeed: %v", err)
+		}
+
+		if !session.Closed {
+			t.Error("session should be marked as closed")
+		}
+
+		_, ok := manager.GetSession(sessionID)
+		if ok {
+			t.Error("closed session should be removed from manager")
+		}
+
+		err = manager.CloseSession("nonexistent")
+		if err == nil {
+			t.Error("closing nonexistent session should fail")
+		}
+	})
+
+	t.Run("PauseSession", func(t *testing.T) {
+		manager := NewLiveSessionManager(nil)
+
+		ctx := context.Background()
+		invCtx := NewInvocationContext(ctx, &agent.AgentInput{})
+
+		session := manager.CreateSession(invCtx)
+
+		pauseState, err := manager.PauseSession(session.ID)
+		if err != nil {
+			t.Errorf("pause should succeed: %v", err)
+		}
+		if pauseState == nil {
+			t.Fatal("pause state should not be nil")
+		}
+		if pauseState.CheckpointID == "" {
+			t.Error("pause state should have checkpoint ID")
+		}
+		if pauseState.PausedAt.IsZero() {
+			t.Error("pause state should have timestamp")
+		}
+		if session.PauseState == nil {
+			t.Error("session should have pause state set")
+		}
+
+		_, err = manager.PauseSession("nonexistent")
+		if err == nil {
+			t.Error("pausing nonexistent session should fail")
+		}
+	})
+
+	t.Run("ResumeSession", func(t *testing.T) {
+		manager := NewLiveSessionManager(nil)
+
+		ctx := context.Background()
+		invCtx := NewInvocationContext(ctx, &agent.AgentInput{})
+
+		session := manager.CreateSession(invCtx)
+		oldActivity := session.LastActivity
+
+		pauseState, _ := manager.PauseSession(session.ID)
+
+		// Wait a tiny bit to ensure time difference
+		time.Sleep(time.Millisecond)
+
+		resumed, err := manager.ResumeSession(session.ID, pauseState)
+		if err != nil {
+			t.Errorf("resume should succeed: %v", err)
+		}
+		if resumed == nil {
+			t.Fatal("resumed session should not be nil")
+		}
+		if resumed.PauseState != nil {
+			t.Error("pause state should be cleared after resume")
+		}
+		if !resumed.LastActivity.After(oldActivity) {
+			t.Error("last activity should be updated on resume")
+		}
+
+		_, err = manager.ResumeSession("nonexistent", pauseState)
+		if err == nil {
+			t.Error("resuming nonexistent session should fail")
+		}
+	})
+
+	t.Run("CleanupIdleSessions", func(t *testing.T) {
+		config := &LiveSessionConfig{
+			MaxIdleTime:  10 * time.Millisecond,
+			BufferSize:   10,
+		}
+		manager := NewLiveSessionManager(config)
+
+		ctx := context.Background()
+		invCtx := NewInvocationContext(ctx, &agent.AgentInput{})
+
+		session1 := manager.CreateSession(invCtx)
+		session2 := manager.CreateSession(invCtx)
+
+		// Wait for sessions to become idle
+		time.Sleep(20 * time.Millisecond)
+
+		cleaned := manager.CleanupIdleSessions()
+		if cleaned != 2 {
+			t.Errorf("expected 2 sessions cleaned, got %d", cleaned)
+		}
+
+		if !session1.Closed || !session2.Closed {
+			t.Error("sessions should be marked as closed")
+		}
+
+		if len(manager.ListActiveSessions()) != 0 {
+			t.Error("all sessions should be removed")
+		}
+	})
+
+	t.Run("OnDisconnectCallback", func(t *testing.T) {
+		disconnectedSessions := []string{}
+		config := &LiveSessionConfig{
+			MaxIdleTime:  10 * time.Millisecond,
+			BufferSize:   10,
+			OnDisconnect: func(session *LiveSession) {
+				disconnectedSessions = append(disconnectedSessions, session.ID)
+			},
+		}
+		manager := NewLiveSessionManager(config)
+
+		ctx := context.Background()
+		invCtx := NewInvocationContext(ctx, &agent.AgentInput{})
+
+		session := manager.CreateSession(invCtx)
+		expectedID := session.ID
+
+		time.Sleep(20 * time.Millisecond)
+		manager.CleanupIdleSessions()
+
+		if len(disconnectedSessions) != 1 {
+			t.Errorf("expected 1 disconnect callback, got %d", len(disconnectedSessions))
+		}
+		if disconnectedSessions[0] != expectedID {
+			t.Error("callback should receive correct session ID")
+		}
+	})
+}
+
+func TestSessionPauseState(t *testing.T) {
+	t.Run("CapturesState", func(t *testing.T) {
+		state := &SessionPauseState{
+			Contents: []Content{
+				{Role: "user", Parts: []Part{{Text: "Hello"}}},
+				{Role: "assistant", Parts: []Part{{Text: "Hi there"}}},
+			},
+			PendingCalls: []*FunctionCall{
+				{Name: "search", Args: map[string]interface{}{"query": "test"}},
+			},
+			SystemInstruction: "You are helpful",
+			CheckpointID:      "checkpoint-123",
+			PausedAt:          time.Now(),
+		}
+
+		if len(state.Contents) != 2 {
+			t.Error("should capture conversation history")
+		}
+		if len(state.PendingCalls) != 1 {
+			t.Error("should capture pending calls")
+		}
+		if state.SystemInstruction != "You are helpful" {
+			t.Error("should capture system instruction")
+		}
+	})
+}
+
+// ============================================================================
+// Long-Running Tool Tracker Tests
+// ============================================================================
+
+func TestLongRunningToolTracker(t *testing.T) {
+	t.Run("NewTracker", func(t *testing.T) {
+		tracker := NewLongRunningToolTracker()
+		if tracker == nil {
+			t.Fatal("tracker should not be nil")
+		}
+		if len(tracker.ListRunningTools()) != 0 {
+			t.Error("should have no tools initially")
+		}
+	})
+
+	t.Run("StartTool", func(t *testing.T) {
+		tracker := NewLongRunningToolTracker()
+
+		_, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		tool := tracker.StartTool("search", map[string]interface{}{"query": "test"}, cancel)
+		if tool == nil {
+			t.Fatal("tool should not be nil")
+		}
+		if tool.ID == "" {
+			t.Error("tool should have an ID")
+		}
+		if tool.Name != "search" {
+			t.Error("tool should have correct name")
+		}
+		if tool.Status != ToolStatusRunning {
+			t.Error("tool should be running")
+		}
+		if tool.StartTime.IsZero() {
+			t.Error("tool should have start time")
+		}
+
+		running := tracker.ListRunningTools()
+		if len(running) != 1 {
+			t.Errorf("expected 1 running tool, got %d", len(running))
+		}
+	})
+
+	t.Run("GetTool", func(t *testing.T) {
+		tracker := NewLongRunningToolTracker()
+		_, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		tool := tracker.StartTool("test", nil, cancel)
+
+		retrieved, ok := tracker.GetTool(tool.ID)
+		if !ok {
+			t.Error("should find started tool")
+		}
+		if retrieved.ID != tool.ID {
+			t.Error("retrieved tool should match")
+		}
+
+		_, ok = tracker.GetTool("nonexistent")
+		if ok {
+			t.Error("should not find nonexistent tool")
+		}
+	})
+
+	t.Run("UpdateProgress", func(t *testing.T) {
+		tracker := NewLongRunningToolTracker()
+		_, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		tool := tracker.StartTool("test", nil, cancel)
+
+		err := tracker.UpdateProgress(tool.ID, 0.5, "halfway done")
+		if err != nil {
+			t.Errorf("update should succeed: %v", err)
+		}
+
+		retrieved, _ := tracker.GetTool(tool.ID)
+		if retrieved.Progress != 0.5 {
+			t.Errorf("expected progress 0.5, got %f", retrieved.Progress)
+		}
+		if retrieved.ProgressMsg != "halfway done" {
+			t.Error("progress message should be updated")
+		}
+
+		err = tracker.UpdateProgress("nonexistent", 0.5, "test")
+		if err == nil {
+			t.Error("updating nonexistent tool should fail")
+		}
+	})
+
+	t.Run("CompleteTool", func(t *testing.T) {
+		tracker := NewLongRunningToolTracker()
+		_, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		tool := tracker.StartTool("test", nil, cancel)
+
+		err := tracker.CompleteTool(tool.ID, "result_data", nil)
+		if err != nil {
+			t.Errorf("complete should succeed: %v", err)
+		}
+
+		retrieved, _ := tracker.GetTool(tool.ID)
+		if retrieved.Status != ToolStatusCompleted {
+			t.Error("tool should be completed")
+		}
+		if retrieved.Result != "result_data" {
+			t.Error("result should be set")
+		}
+		if retrieved.EndTime.IsZero() {
+			t.Error("end time should be set")
+		}
+
+		// Test with error
+		tool2 := tracker.StartTool("test2", nil, cancel)
+		testErr := errors.New("something failed")
+		tracker.CompleteTool(tool2.ID, nil, testErr)
+
+		retrieved2, _ := tracker.GetTool(tool2.ID)
+		if retrieved2.Status != ToolStatusFailed {
+			t.Error("tool with error should be failed")
+		}
+		if retrieved2.Error != testErr {
+			t.Error("error should be set")
+		}
+	})
+
+	t.Run("CancelTool", func(t *testing.T) {
+		tracker := NewLongRunningToolTracker()
+		ctx, cancel := context.WithCancel(context.Background())
+
+		tool := tracker.StartTool("test", nil, cancel)
+
+		err := tracker.CancelTool(tool.ID)
+		if err != nil {
+			t.Errorf("cancel should succeed: %v", err)
+		}
+
+		retrieved, _ := tracker.GetTool(tool.ID)
+		if retrieved.Status != ToolStatusCancelled {
+			t.Error("tool should be cancelled")
+		}
+
+		// Verify context was cancelled
+		select {
+		case <-ctx.Done():
+			// Good - context was cancelled
+		default:
+			t.Error("cancel should have cancelled the context")
+		}
+
+		err = tracker.CancelTool("nonexistent")
+		if err == nil {
+			t.Error("cancelling nonexistent tool should fail")
+		}
+	})
+
+	t.Run("ListRunningTools", func(t *testing.T) {
+		tracker := NewLongRunningToolTracker()
+		_, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		tool1 := tracker.StartTool("running1", nil, cancel)
+		tool2 := tracker.StartTool("running2", nil, cancel)
+		tool3 := tracker.StartTool("completed", nil, cancel)
+		tracker.CompleteTool(tool3.ID, nil, nil)
+
+		running := tracker.ListRunningTools()
+		if len(running) != 2 {
+			t.Errorf("expected 2 running tools, got %d", len(running))
+		}
+
+		// Verify only running tools are returned
+		ids := map[string]bool{}
+		for _, tool := range running {
+			ids[tool.ID] = true
+		}
+		if !ids[tool1.ID] || !ids[tool2.ID] {
+			t.Error("should return both running tools")
+		}
+		if ids[tool3.ID] {
+			t.Error("should not return completed tool")
+		}
+	})
+
+	t.Run("CleanupCompleted", func(t *testing.T) {
+		tracker := NewLongRunningToolTracker()
+		_, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// Create and complete tools
+		tool1 := tracker.StartTool("old", nil, cancel)
+		tracker.CompleteTool(tool1.ID, nil, nil)
+
+		tool2 := tracker.StartTool("running", nil, cancel)
+
+		// Sleep to make tool1 "old"
+		time.Sleep(20 * time.Millisecond)
+
+		cleaned := tracker.CleanupCompleted(10 * time.Millisecond)
+		if cleaned != 1 {
+			t.Errorf("expected 1 tool cleaned, got %d", cleaned)
+		}
+
+		_, ok := tracker.GetTool(tool1.ID)
+		if ok {
+			t.Error("old completed tool should be removed")
+		}
+
+		_, ok = tracker.GetTool(tool2.ID)
+		if !ok {
+			t.Error("running tool should not be removed")
+		}
+	})
+
+	t.Run("ToolStatusString", func(t *testing.T) {
+		tests := []struct {
+			status   ToolStatus
+			expected string
+		}{
+			{ToolStatusPending, "pending"},
+			{ToolStatusRunning, "running"},
+			{ToolStatusCompleted, "completed"},
+			{ToolStatusFailed, "failed"},
+			{ToolStatusCancelled, "cancelled"},
+			{ToolStatus(99), "unknown"},
+		}
+
+		for _, tt := range tests {
+			if tt.status.String() != tt.expected {
+				t.Errorf("expected %s, got %s", tt.expected, tt.status.String())
+			}
+		}
+	})
+}
+
+func TestLiveSessionConfig(t *testing.T) {
+	t.Run("DefaultConfig", func(t *testing.T) {
+		config := DefaultLiveSessionConfig()
+		if config == nil {
+			t.Fatal("default config should not be nil")
+		}
+		if config.MaxIdleTime != 5*time.Minute {
+			t.Error("default max idle time should be 5 minutes")
+		}
+		if config.BufferSize != 100 {
+			t.Error("default buffer size should be 100")
+		}
+		if config.EnableAudioCache {
+			t.Error("audio cache should be disabled by default")
+		}
+		if config.EnableTranscription {
+			t.Error("transcription should be disabled by default")
+		}
+	})
+
+	t.Run("CustomConfig", func(t *testing.T) {
+		config := &LiveSessionConfig{
+			MaxIdleTime:         10 * time.Minute,
+			EnableAudioCache:    true,
+			BufferSize:          200,
+			EnableTranscription: true,
+		}
+
+		manager := NewLiveSessionManager(config)
+		if manager.config.MaxIdleTime != 10*time.Minute {
+			t.Error("should use custom max idle time")
+		}
+		if manager.config.BufferSize != 200 {
+			t.Error("should use custom buffer size")
+		}
+	})
+}
