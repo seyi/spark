@@ -133,6 +133,10 @@ type InvocationContext struct {
 	CurrentTurn  int       `json:"current_turn"`
 	StartTime    time.Time `json:"start_time"`
 
+	// ADK-compatible flow control
+	AgentName     string `json:"agent_name,omitempty"`      // Current agent name (for billing/logging)
+	EndInvocation bool   `json:"end_invocation,omitempty"` // Signal to end invocation early
+
 	// Services (will be populated)
 	Services *RuntimeServices `json:"-"`
 

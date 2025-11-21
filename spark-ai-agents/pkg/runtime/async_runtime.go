@@ -337,6 +337,14 @@ type LLMAsyncAgent struct {
 	*BaseAsyncAgent
 	executor StepExecutor
 	maxSteps int
+
+	// ADK-compatible LLM flow with processors and callbacks
+	flow *LlmFlow
+
+	// Callbacks (can be used without full flow)
+	beforeModelCallbacks  []BeforeModelCallback
+	afterModelCallbacks   []AfterModelCallback
+	onModelErrorCallbacks []OnModelErrorCallback
 }
 
 // NewLLMAsyncAgent creates a new LLM async agent
@@ -346,6 +354,30 @@ func NewLLMAsyncAgent(id, name string, executor StepExecutor) *LLMAsyncAgent {
 		executor:       executor,
 		maxSteps:       10,
 	}
+}
+
+// WithLlmFlow sets the LLM flow for ADK-compatible processing
+func (a *LLMAsyncAgent) WithLlmFlow(flow *LlmFlow) *LLMAsyncAgent {
+	a.flow = flow
+	return a
+}
+
+// WithBeforeModelCallback adds a callback to run before model invocation
+func (a *LLMAsyncAgent) WithBeforeModelCallback(cb BeforeModelCallback) *LLMAsyncAgent {
+	a.beforeModelCallbacks = append(a.beforeModelCallbacks, cb)
+	return a
+}
+
+// WithAfterModelCallback adds a callback to run after model response
+func (a *LLMAsyncAgent) WithAfterModelCallback(cb AfterModelCallback) *LLMAsyncAgent {
+	a.afterModelCallbacks = append(a.afterModelCallbacks, cb)
+	return a
+}
+
+// WithOnModelErrorCallback adds a callback to run on model errors
+func (a *LLMAsyncAgent) WithOnModelErrorCallback(cb OnModelErrorCallback) *LLMAsyncAgent {
+	a.onModelErrorCallbacks = append(a.onModelErrorCallbacks, cb)
+	return a
 }
 
 // WithMaxSteps sets the maximum number of steps
@@ -364,9 +396,34 @@ func (a *LLMAsyncAgent) WithMaxSteps(max int) *LLMAsyncAgent {
 func (a *LLMAsyncAgent) RunAsync(ctx context.Context, invCtx *InvocationContext) <-chan *AsyncEvent {
 	output := make(chan *AsyncEvent)
 
+	// Set agent name in context for billing/logging
+	invCtx.AgentName = a.name
+
 	go func() {
 		defer close(output)
 
+		// If we have a full LlmFlow, delegate to it
+		if a.flow != nil {
+			// Copy callbacks from agent to flow
+			for _, cb := range a.beforeModelCallbacks {
+				a.flow.BeforeModelCallbacks = append(a.flow.BeforeModelCallbacks, cb)
+			}
+			for _, cb := range a.afterModelCallbacks {
+				a.flow.AfterModelCallbacks = append(a.flow.AfterModelCallbacks, cb)
+			}
+			for _, cb := range a.onModelErrorCallbacks {
+				a.flow.OnModelErrorCallbacks = append(a.flow.OnModelErrorCallbacks, cb)
+			}
+			a.flow.MaxSteps = a.maxSteps
+
+			// Run through flow
+			for event := range a.flow.RunAsync(ctx, invCtx) {
+				output <- event
+			}
+			return
+		}
+
+		// Otherwise, use the basic step executor pattern
 		step := 0
 		for step < a.maxSteps {
 			step++
