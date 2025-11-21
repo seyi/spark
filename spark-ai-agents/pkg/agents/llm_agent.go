@@ -9,6 +9,7 @@ import (
 
 	"github.com/apache/spark/spark-ai-agents/pkg/agent"
 	"github.com/apache/spark/spark-ai-agents/pkg/model"
+	"github.com/apache/spark/spark-ai-agents/pkg/runtime"
 	"github.com/apache/spark/spark-ai-agents/pkg/tools"
 )
 
@@ -114,6 +115,9 @@ func (e *llmExecutor) Execute(ctx context.Context, ag agent.Agent, input *agent.
 func (e *llmExecutor) executeSimple(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	startTime := time.Now()
 
+	// Runtime integration: Emit partial event for "thinking"
+	runtime.EmitMessage(ctx, "Analyzing request...", true)
+
 	// Build prompt combining instruction and user input
 	prompt := e.buildPrompt(input)
 
@@ -139,9 +143,17 @@ func (e *llmExecutor) executeSimple(ctx context.Context, input *agent.AgentInput
 		}
 	}
 
+	// Runtime integration: Emit event before model call
+	runtime.EmitMessage(ctx, "Calling LLM...", true)
+
 	// Call LLM
 	modelOutput, err := e.llmAgent.model.Generate(ctx, modelInput)
 	if err != nil {
+		// Runtime integration: Emit error event
+		runtime.EmitEvent(ctx, runtime.EventTypeError, map[string]interface{}{
+			"error": err.Error(),
+			"stage": "llm_generation",
+		}, false)
 		return nil, fmt.Errorf("LLM generation failed: %w", err)
 	}
 
@@ -155,11 +167,21 @@ func (e *llmExecutor) executeSimple(ctx context.Context, input *agent.AgentInput
 
 	// Check if LLM wants to use tools
 	if toolCall, ok := e.extractToolCall(modelOutput.Text); ok {
+		// Runtime integration: Emit tool call event
+		runtime.EmitToolCall(ctx, toolCall.ToolName, toolCall.Arguments)
+
 		// Execute tool and get result
 		toolResult, err := e.executeTool(ctx, toolCall.ToolName, toolCall.Arguments)
+
+		// Runtime integration: Emit tool result event
+		runtime.EmitToolResult(ctx, toolCall.ToolName, toolResult, err)
+
 		if err != nil {
 			return nil, fmt.Errorf("tool execution failed: %w", err)
 		}
+
+		// Runtime integration: Emit partial event
+		runtime.EmitMessage(ctx, fmt.Sprintf("Tool %s executed, processing results...", toolCall.ToolName), true)
 
 		// Call LLM again with tool result
 		followUpPrompt := e.buildPromptWithToolResult(input, toolCall, toolResult)
@@ -187,6 +209,13 @@ func (e *llmExecutor) executeSimple(ctx context.Context, input *agent.AgentInput
 		}
 	}
 
+	// Runtime integration: Emit final message event with state delta
+	runtime.EmitEventWithDelta(ctx, runtime.EventTypeMessage, modelOutput.Text, false, map[string]interface{}{
+		"llm_response":   modelOutput.Text,
+		"tokens_used":    modelOutput.TokensUsed,
+		"execution_time": time.Since(startTime).Seconds(),
+	})
+
 	return &agent.AgentOutput{
 		Result: modelOutput.Text,
 		Metadata: map[string]interface{}{
@@ -203,6 +232,9 @@ func (e *llmExecutor) executeSimple(ctx context.Context, input *agent.AgentInput
 func (e *llmExecutor) executeReAct(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	startTime := time.Now()
 
+	// Runtime integration: Emit ReAct start event
+	runtime.EmitMessage(ctx, "Starting ReAct reasoning loop...", true)
+
 	conversationHistory := []string{}
 	var finalAnswer string
 	iterations := 0
@@ -214,6 +246,9 @@ func (e *llmExecutor) executeReAct(ctx context.Context, input *agent.AgentInput)
 
 	for iterations < e.llmAgent.maxIterations {
 		iterations++
+
+		// Runtime integration: Emit iteration start
+		runtime.EmitMessage(ctx, fmt.Sprintf("ReAct iteration %d/%d...", iterations, e.llmAgent.maxIterations), true)
 
 		// Build prompt with conversation history
 		prompt := strings.Join(conversationHistory, "\n\n")
@@ -259,7 +294,14 @@ func (e *llmExecutor) executeReAct(ctx context.Context, input *agent.AgentInput)
 
 		// Execute action if present
 		if reactStep.Action != "" {
+			// Runtime integration: Emit tool call event
+			runtime.EmitToolCall(ctx, reactStep.Action, reactStep.ActionInput)
+
 			toolResult, err := e.executeTool(ctx, reactStep.Action, reactStep.ActionInput)
+
+			// Runtime integration: Emit tool result event
+			runtime.EmitToolResult(ctx, reactStep.Action, toolResult, err)
+
 			if err != nil {
 				observation := fmt.Sprintf("Observation: Error executing %s: %v", reactStep.Action, err)
 				conversationHistory = append(conversationHistory, observation)
@@ -274,6 +316,13 @@ func (e *llmExecutor) executeReAct(ctx context.Context, input *agent.AgentInput)
 	if finalAnswer == "" {
 		finalAnswer = "Maximum iterations reached without final answer"
 	}
+
+	// Runtime integration: Emit final answer event
+	runtime.EmitEventWithDelta(ctx, runtime.EventTypeMessage, finalAnswer, false, map[string]interface{}{
+		"react_answer":    finalAnswer,
+		"iterations":      iterations,
+		"execution_time":  time.Since(startTime).Seconds(),
+	})
 
 	return &agent.AgentOutput{
 		Result: finalAnswer,

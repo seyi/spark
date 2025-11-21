@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/apache/spark/spark-ai-agents/pkg/agent"
+	"github.com/apache/spark/spark-ai-agents/pkg/runtime"
 )
 
 // AggregationType defines how parallel results are combined
@@ -108,6 +109,9 @@ type parallelExecutor struct {
 func (e *parallelExecutor) Execute(ctx context.Context, ag agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	startTime := time.Now()
 
+	// Runtime integration: Emit parallel start event
+	runtime.EmitMessage(ctx, fmt.Sprintf("Starting parallel execution of %d agents...", len(e.parallelAgent.childAgents)), true)
+
 	// Create timeout context
 	ctx, cancel := context.WithTimeout(ctx, e.parallelAgent.timeout)
 	defer cancel()
@@ -183,6 +187,13 @@ func (e *parallelExecutor) Execute(ctx context.Context, ag agent.Agent, input *a
 	if err != nil {
 		return nil, fmt.Errorf("result aggregation failed: %w", err)
 	}
+
+	// Runtime integration: Emit completion event
+	runtime.EmitEventWithDelta(ctx, runtime.EventTypeMessage, "Parallel execution completed", false, map[string]interface{}{
+		"successful":     successCount,
+		"total_agents":   numAgents,
+		"execution_time": time.Since(startTime).Seconds(),
+	})
 
 	return &agent.AgentOutput{
 		Result: aggregatedResult,

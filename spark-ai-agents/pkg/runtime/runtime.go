@@ -344,6 +344,18 @@ func (r *AgentRuntime) Run(ctx context.Context, input *agent.AgentInput) (*agent
 	// Clean up temporary state
 	invCtx.ClearTempState()
 
+	// Copy events from InvocationContext to runtime log
+	r.mu.Lock()
+	for _, event := range invCtx.EventHistory {
+		r.eventLog = append(r.eventLog, event)
+
+		// Trim if too many events
+		if len(r.eventLog) > r.maxEvents {
+			r.eventLog = r.eventLog[len(r.eventLog)-r.maxEvents:]
+		}
+	}
+	r.mu.Unlock()
+
 	// Record final state in output
 	if output.Metadata == nil {
 		output.Metadata = make(map[string]interface{})

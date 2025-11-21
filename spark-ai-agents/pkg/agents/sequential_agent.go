@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/apache/spark/spark-ai-agents/pkg/agent"
+	"github.com/apache/spark/spark-ai-agents/pkg/runtime"
 )
 
 // SequentialAgent executes agents in predetermined order
@@ -89,14 +90,27 @@ type sequentialExecutor struct {
 func (e *sequentialExecutor) Execute(ctx context.Context, ag agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	startTime := time.Now()
 
+	// Runtime integration: Emit sequence start event
+	runtime.EmitMessage(ctx, fmt.Sprintf("Starting sequential execution of %d agents...", len(e.seqAgent.childAgents)), true)
+
 	results := make([]*agent.AgentOutput, 0, len(e.seqAgent.childAgents))
 	currentInput := input
 
 	for i, childAgent := range e.seqAgent.childAgents {
-		// Execute child agent
+		// Runtime integration: Emit step start event
+		runtime.EmitMessage(ctx, fmt.Sprintf("Step %d/%d: Executing %s...", i+1, len(e.seqAgent.childAgents), childAgent.Name()), true)
+
+		// Execute child agent (context is propagated)
 		output, err := childAgent.Execute(ctx, currentInput)
 
 		if err != nil {
+			// Runtime integration: Emit error event
+			runtime.EmitEvent(ctx, runtime.EventTypeError, map[string]interface{}{
+				"agent": childAgent.Name(),
+				"step":  i,
+				"error": err.Error(),
+			}, false)
+
 			if e.seqAgent.stopOnError {
 				return nil, fmt.Errorf("sequential agent failed at step %d (%s): %w",
 					i, childAgent.Name(), err)
@@ -106,7 +120,7 @@ func (e *sequentialExecutor) Execute(ctx context.Context, ag agent.Agent, input 
 			results = append(results, &agent.AgentOutput{
 				Result:    nil,
 				Error:     err,
-				
+
 				Metadata: map[string]interface{}{
 					"agent": childAgent.Name(),
 					"step":  i,
@@ -148,6 +162,12 @@ func (e *sequentialExecutor) Execute(ctx context.Context, ag agent.Agent, input 
 	// Aggregate results
 	finalResult := e.aggregateResults(results)
 
+	// Runtime integration: Emit completion event
+	runtime.EmitEventWithDelta(ctx, runtime.EventTypeMessage, "Sequential execution completed", false, map[string]interface{}{
+		"steps_completed": len(results),
+		"execution_time":  time.Since(startTime).Seconds(),
+	})
+
 	return &agent.AgentOutput{
 		Result: finalResult,
 		Metadata: map[string]interface{}{
@@ -155,7 +175,7 @@ func (e *sequentialExecutor) Execute(ctx context.Context, ag agent.Agent, input 
 			"steps_completed": len(results),
 			"total_steps":     len(e.seqAgent.childAgents),
 			"execution_time":  time.Since(startTime).Seconds(),
-			"step_results": results,
+			"step_results":    results,
 		},
 	}, nil
 }

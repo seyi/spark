@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/apache/spark/spark-ai-agents/pkg/agent"
+	"github.com/apache/spark/spark-ai-agents/pkg/runtime"
 )
 
 // LoopType defines the type of loop
@@ -133,6 +134,9 @@ type loopExecutor struct {
 func (e *loopExecutor) Execute(ctx context.Context, ag agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	startTime := time.Now()
 
+	// Runtime integration: Emit loop start event
+	runtime.EmitMessage(ctx, fmt.Sprintf("Starting loop execution (max %d iterations)...", e.loopAgent.maxIterations), true)
+
 	// Create timeout context
 	ctx, cancel := context.WithTimeout(ctx, e.loopAgent.timeout)
 	defer cancel()
@@ -151,7 +155,10 @@ func (e *loopExecutor) Execute(ctx context.Context, ag agent.Agent, input *agent
 
 		iteration++
 
-		// Execute inner agent
+		// Runtime integration: Emit iteration start
+		runtime.EmitMessage(ctx, fmt.Sprintf("Loop iteration %d/%d...", iteration, e.loopAgent.maxIterations), true)
+
+		// Execute inner agent (context is propagated)
 		output, err := e.loopAgent.innerAgent.Execute(ctx, currentInput)
 		if err != nil {
 			return nil, fmt.Errorf("loop iteration %d failed: %w", iteration, err)
@@ -184,19 +191,25 @@ func (e *loopExecutor) Execute(ctx context.Context, ag agent.Agent, input *agent
 	// Build final output
 	finalResult := e.buildFinalResult(results, currentOutput)
 
+	// Runtime integration: Emit loop completion event
+	runtime.EmitEventWithDelta(ctx, runtime.EventTypeMessage, fmt.Sprintf("Loop completed after %d iterations", iteration), false, map[string]interface{}{
+		"iterations":      iteration,
+		"execution_time":  time.Since(startTime).Seconds(),
+		"completed_early": iteration < e.loopAgent.maxIterations,
+	})
+
 	return &agent.AgentOutput{
 		Result: finalResult,
 		Metadata: map[string]interface{}{
-			"pattern":           "Loop",
-			"loop_type":         e.loopAgent.loopType,
-			"iterations":        iteration,
-			"max_iterations":    e.loopAgent.maxIterations,
-			"accumulate_mode":   e.loopAgent.accumulateMode,
-			"execution_time":    time.Since(startTime).Seconds(),
-			"all_results":       results,
-			"completed_early":   iteration < e.loopAgent.maxIterations,
+			"pattern":         "Loop",
+			"loop_type":       e.loopAgent.loopType,
+			"iterations":      iteration,
+			"max_iterations":  e.loopAgent.maxIterations,
+			"accumulate_mode": e.loopAgent.accumulateMode,
+			"execution_time":  time.Since(startTime).Seconds(),
+			"all_results":     results,
+			"completed_early": iteration < e.loopAgent.maxIterations,
 		},
-		
 	}, nil
 }
 
