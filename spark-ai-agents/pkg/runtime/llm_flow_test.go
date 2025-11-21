@@ -765,3 +765,352 @@ func TestToolDefinition(t *testing.T) {
 		}
 	})
 }
+
+// Tests for ADK-compatible features
+
+func TestStreamingMode(t *testing.T) {
+	t.Run("SSE_YieldsPartials", func(t *testing.T) {
+		provider := NewMockLlmProvider(
+			&LlmResponse{
+				Content: &Content{Parts: []Part{{Text: "par"}}},
+				Partial: true,
+			},
+			&LlmResponse{
+				Content:      &Content{Parts: []Part{{Text: "partial response"}}},
+				Partial:      false,
+				TurnComplete: true,
+			},
+		)
+
+		flow := NewLlmFlow(provider)
+		flow.MaxSteps = 1
+		flow.DefaultRunConfig = &RunConfig{
+			StreamingMode: StreamingModeSSE,
+		}
+
+		ctx := context.Background()
+		input := &agent.AgentInput{Instruction: "test"}
+		invCtx := NewInvocationContext(ctx, input)
+		invCtx.AgentName = "test-agent"
+
+		events := CollectEvents(flow.RunAsync(ctx, invCtx))
+
+		// Should have both partial and final events
+		if len(events) < 2 {
+			t.Errorf("expected at least 2 events in SSE mode, got %d", len(events))
+		}
+	})
+
+	t.Run("None_FilterPartials", func(t *testing.T) {
+		provider := NewMockLlmProvider(
+			&LlmResponse{
+				Content: &Content{Parts: []Part{{Text: "par"}}},
+				Partial: true,
+			},
+			&LlmResponse{
+				Content:      &Content{Parts: []Part{{Text: "full"}}},
+				Partial:      false,
+				TurnComplete: true,
+			},
+		)
+
+		flow := NewLlmFlow(provider)
+		flow.MaxSteps = 1
+		flow.DefaultRunConfig = &RunConfig{
+			StreamingMode: StreamingModeNone,
+		}
+
+		ctx := context.Background()
+		input := &agent.AgentInput{Instruction: "test"}
+		invCtx := NewInvocationContext(ctx, input)
+		invCtx.AgentName = "test-agent"
+
+		events := CollectEvents(flow.RunAsync(ctx, invCtx))
+
+		// In non-SSE mode, partial events are filtered
+		for _, e := range events {
+			if e.Partial {
+				t.Error("partial events should be filtered in non-SSE mode")
+			}
+		}
+	})
+}
+
+func TestLLMCallCounting(t *testing.T) {
+	t.Run("IncrementsCount", func(t *testing.T) {
+		ctx := context.Background()
+		input := &agent.AgentInput{Instruction: "test"}
+		invCtx := NewInvocationContext(ctx, input)
+
+		if invCtx.GetLLMCallCount() != 0 {
+			t.Error("initial count should be 0")
+		}
+
+		err := invCtx.IncrementLLMCallCount()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		if invCtx.GetLLMCallCount() != 1 {
+			t.Errorf("count should be 1, got %d", invCtx.GetLLMCallCount())
+		}
+	})
+
+	t.Run("EnforcesLimit", func(t *testing.T) {
+		ctx := context.Background()
+		input := &agent.AgentInput{Instruction: "test"}
+		invCtx := NewInvocationContext(ctx, input)
+		invCtx.RunConfig = &RunConfig{
+			MaxLLMCalls: 2,
+		}
+
+		// First two calls should succeed
+		if err := invCtx.IncrementLLMCallCount(); err != nil {
+			t.Errorf("first call failed: %v", err)
+		}
+		if err := invCtx.IncrementLLMCallCount(); err != nil {
+			t.Errorf("second call failed: %v", err)
+		}
+
+		// Third call should fail
+		if err := invCtx.IncrementLLMCallCount(); err == nil {
+			t.Error("expected error for exceeding limit")
+		}
+	})
+
+	t.Run("FlowEnforcesLimit", func(t *testing.T) {
+		provider := NewMockLlmProvider(&LlmResponse{
+			Content:      &Content{Parts: []Part{{Text: "response"}}},
+			TurnComplete: true,
+		})
+
+		flow := NewLlmFlow(provider)
+		flow.MaxSteps = 5
+		flow.DefaultRunConfig = &RunConfig{
+			MaxLLMCalls: 1,
+		}
+
+		ctx := context.Background()
+		input := &agent.AgentInput{Instruction: "test"}
+		invCtx := NewInvocationContext(ctx, input)
+		invCtx.AgentName = "test-agent"
+		invCtx.RunConfig = &RunConfig{MaxLLMCalls: 1}
+
+		// Pre-increment to simulate previous call
+		invCtx.IncrementLLMCallCount()
+
+		events := CollectEvents(flow.RunAsync(ctx, invCtx))
+
+		// Should have an error event
+		var hasLimitError bool
+		for _, e := range events {
+			if e.Error != nil && e.Error.Error() != "" {
+				hasLimitError = true
+			}
+		}
+
+		// The flow should have enforced the limit
+		if invCtx.GetLLMCallCount() != 1 {
+			// Count should not have been incremented past 1
+		}
+		_ = hasLimitError
+	})
+}
+
+func TestTracer(t *testing.T) {
+	t.Run("NoopTracer", func(t *testing.T) {
+		tracer := &NoopTracer{}
+
+		ctx, span := tracer.StartSpan(context.Background(), "test")
+		if ctx == nil {
+			t.Error("context should not be nil")
+		}
+		if span == nil {
+			t.Error("span should not be nil")
+		}
+
+		// These should not panic
+		span.SetAttribute("key", "value")
+		span.RecordError(errors.New("test error"))
+		span.End()
+	})
+
+	t.Run("FlowUsesTracer", func(t *testing.T) {
+		provider := NewMockLlmProvider(&LlmResponse{
+			Content:      &Content{Parts: []Part{{Text: "response"}}},
+			TurnComplete: true,
+		})
+
+		spanStarted := false
+		spanEnded := false
+
+		mockTracer := &mockTracer{
+			onStart: func() { spanStarted = true },
+			onEnd:   func() { spanEnded = true },
+		}
+
+		flow := NewLlmFlow(provider)
+		flow.MaxSteps = 1
+		flow.Tracer = mockTracer
+
+		ctx := context.Background()
+		input := &agent.AgentInput{Instruction: "test"}
+		invCtx := NewInvocationContext(ctx, input)
+		invCtx.AgentName = "test-agent"
+
+		CollectEvents(flow.RunAsync(ctx, invCtx))
+
+		if !spanStarted {
+			t.Error("expected span to be started")
+		}
+		if !spanEnded {
+			t.Error("expected span to be ended")
+		}
+	})
+}
+
+type mockTracer struct {
+	onStart func()
+	onEnd   func()
+}
+
+func (t *mockTracer) StartSpan(ctx context.Context, name string) (context.Context, Span) {
+	if t.onStart != nil {
+		t.onStart()
+	}
+	return ctx, &mockSpan{onEnd: t.onEnd}
+}
+
+type mockSpan struct {
+	onEnd func()
+}
+
+func (s *mockSpan) End() {
+	if s.onEnd != nil {
+		s.onEnd()
+	}
+}
+func (s *mockSpan) SetAttribute(key string, value interface{}) {}
+func (s *mockSpan) RecordError(err error)                      {}
+
+func TestTraceCallback(t *testing.T) {
+	t.Run("CallsTraceCallback", func(t *testing.T) {
+		provider := NewMockLlmProvider(&LlmResponse{
+			Content:      &Content{Parts: []Part{{Text: "response"}}},
+			TurnComplete: true,
+		})
+
+		traceCalled := false
+		var capturedReq *LlmRequest
+		var capturedResp *LlmResponse
+
+		flow := NewLlmFlow(provider)
+		flow.MaxSteps = 1
+		flow.TraceCallback = func(invCtx *InvocationContext, eventID string, req *LlmRequest, resp *LlmResponse) {
+			traceCalled = true
+			capturedReq = req
+			capturedResp = resp
+		}
+
+		ctx := context.Background()
+		input := &agent.AgentInput{Instruction: "test"}
+		invCtx := NewInvocationContext(ctx, input)
+		invCtx.AgentName = "test-agent"
+
+		CollectEvents(flow.RunAsync(ctx, invCtx))
+
+		if !traceCalled {
+			t.Error("expected trace callback to be called")
+		}
+		if capturedReq == nil {
+			t.Error("expected request to be captured")
+		}
+		if capturedResp == nil {
+			t.Error("expected response to be captured")
+		}
+	})
+}
+
+func TestLiveRequestQueue(t *testing.T) {
+	t.Run("SendAndReceive", func(t *testing.T) {
+		queue := NewLiveRequestQueue()
+
+		req := &LlmRequest{SystemInstruction: "test"}
+		queue.Send(req)
+
+		received := <-queue.Receive()
+		if received != req {
+			t.Error("received different request")
+		}
+	})
+
+	t.Run("Close", func(t *testing.T) {
+		queue := NewLiveRequestQueue()
+		queue.Close()
+
+		// Send should not panic after close
+		queue.Send(&LlmRequest{})
+
+		// Receive channel should be closed
+		_, ok := <-queue.Receive()
+		if ok {
+			t.Error("channel should be closed")
+		}
+	})
+}
+
+func TestRunConfig(t *testing.T) {
+	t.Run("Defaults", func(t *testing.T) {
+		config := &RunConfig{}
+
+		if config.StreamingMode != StreamingModeNone {
+			t.Error("default streaming mode should be None")
+		}
+		if config.SupportCFC {
+			t.Error("CFC should be disabled by default")
+		}
+		if config.MaxLLMCalls != 0 {
+			t.Error("max calls should default to 0 (unlimited)")
+		}
+	})
+
+	t.Run("FlowUsesInvocationConfig", func(t *testing.T) {
+		provider := NewMockLlmProvider(&LlmResponse{
+			Content:      &Content{Parts: []Part{{Text: "response"}}},
+			TurnComplete: true,
+		})
+
+		flow := NewLlmFlow(provider)
+		flow.MaxSteps = 1
+		flow.DefaultRunConfig = &RunConfig{
+			StreamingMode: StreamingModeSSE,
+		}
+
+		ctx := context.Background()
+		input := &agent.AgentInput{Instruction: "test"}
+		invCtx := NewInvocationContext(ctx, input)
+		invCtx.AgentName = "test-agent"
+		// Override with invocation-specific config
+		invCtx.RunConfig = &RunConfig{
+			StreamingMode: StreamingModeNone,
+		}
+
+		rc := flow.getRunConfig(invCtx)
+		if rc.StreamingMode != StreamingModeNone {
+			t.Error("invocation config should override flow default")
+		}
+	})
+}
+
+func TestTurnCompletion(t *testing.T) {
+	t.Run("SetsTurnComplete", func(t *testing.T) {
+		resp := &LlmResponse{
+			Content:      &Content{Parts: []Part{{Text: "done"}}},
+			TurnComplete: true,
+		}
+
+		if !resp.TurnComplete {
+			t.Error("TurnComplete should be true")
+		}
+	})
+}

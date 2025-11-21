@@ -137,6 +137,15 @@ type InvocationContext struct {
 	AgentName     string `json:"agent_name,omitempty"`      // Current agent name (for billing/logging)
 	EndInvocation bool   `json:"end_invocation,omitempty"` // Signal to end invocation early
 
+	// LLM call tracking (ADK pattern)
+	LLMCallCount int `json:"llm_call_count"` // Number of LLM calls in this invocation
+
+	// CFC (Continuous Function Calling) support
+	LiveRequestQueue interface{} `json:"-"` // *LiveRequestQueue when in CFC mode
+
+	// Run configuration
+	RunConfig interface{} `json:"-"` // *RunConfig for this invocation
+
 	// Services (will be populated)
 	Services *RuntimeServices `json:"-"`
 
@@ -227,6 +236,32 @@ func (c *InvocationContext) ClearTempState() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.TempState = make(map[string]interface{})
+}
+
+// IncrementLLMCallCount increments the LLM call counter and checks the limit.
+// Returns an error if the limit is exceeded (ADK pattern).
+func (c *InvocationContext) IncrementLLMCallCount() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.LLMCallCount++
+
+	// Check limit from RunConfig if set
+	if c.RunConfig != nil {
+		if rc, ok := c.RunConfig.(*RunConfig); ok && rc.MaxLLMCalls > 0 {
+			if c.LLMCallCount > rc.MaxLLMCalls {
+				return fmt.Errorf("LLM call limit exceeded: %d > %d", c.LLMCallCount, rc.MaxLLMCalls)
+			}
+		}
+	}
+	return nil
+}
+
+// GetLLMCallCount returns the current LLM call count
+func (c *InvocationContext) GetLLMCallCount() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.LLMCallCount
 }
 
 // AddEvent adds an event to the history

@@ -222,6 +222,96 @@ type AfterModelCallback func(ctx *CallbackContext, resp *LlmResponse) (*LlmRespo
 // Can return a recovery response.
 type OnModelErrorCallback func(ctx *CallbackContext, req *LlmRequest, err error) (*LlmResponse, error)
 
+// StreamingMode controls how streaming responses are handled
+type StreamingMode int
+
+const (
+	// StreamingModeNone - no streaming, wait for complete response
+	StreamingModeNone StreamingMode = iota
+	// StreamingModeSSE - Server-Sent Events streaming (yield partial responses)
+	StreamingModeSSE
+	// StreamingModeBidirectional - bidirectional streaming (CFC mode)
+	StreamingModeBidirectional
+)
+
+// Tracer interface for OpenTelemetry-style tracing
+type Tracer interface {
+	// StartSpan starts a new span with the given name
+	StartSpan(ctx context.Context, name string) (context.Context, Span)
+}
+
+// Span represents a trace span
+type Span interface {
+	// End ends the span
+	End()
+	// SetAttribute sets an attribute on the span
+	SetAttribute(key string, value interface{})
+	// RecordError records an error on the span
+	RecordError(err error)
+}
+
+// NoopTracer is a tracer that does nothing (default)
+type NoopTracer struct{}
+
+func (t *NoopTracer) StartSpan(ctx context.Context, name string) (context.Context, Span) {
+	return ctx, &NoopSpan{}
+}
+
+// NoopSpan is a span that does nothing
+type NoopSpan struct{}
+
+func (s *NoopSpan) End()                                  {}
+func (s *NoopSpan) SetAttribute(key string, value interface{}) {}
+func (s *NoopSpan) RecordError(err error)                 {}
+
+// TraceCallback is called for each LLM call for detailed tracing
+type TraceCallback func(invCtx *InvocationContext, eventID string, req *LlmRequest, resp *LlmResponse)
+
+// LiveRequestQueue for CFC (Continuous Function Calling) mode
+type LiveRequestQueue struct {
+	requests chan *LlmRequest
+	closed   bool
+}
+
+// NewLiveRequestQueue creates a new live request queue
+func NewLiveRequestQueue() *LiveRequestQueue {
+	return &LiveRequestQueue{
+		requests: make(chan *LlmRequest, 10),
+	}
+}
+
+// Send sends a request to the queue
+func (q *LiveRequestQueue) Send(req *LlmRequest) {
+	if !q.closed {
+		q.requests <- req
+	}
+}
+
+// Receive returns the request channel
+func (q *LiveRequestQueue) Receive() <-chan *LlmRequest {
+	return q.requests
+}
+
+// Close closes the queue
+func (q *LiveRequestQueue) Close() {
+	if !q.closed {
+		q.closed = true
+		close(q.requests)
+	}
+}
+
+// RunConfig contains runtime configuration for an invocation
+type RunConfig struct {
+	// StreamingMode controls streaming behavior
+	StreamingMode StreamingMode
+
+	// SupportCFC enables Continuous Function Calling mode
+	SupportCFC bool
+
+	// MaxLLMCalls limits the number of LLM calls per invocation
+	MaxLLMCalls int
+}
+
 // LlmFlow orchestrates LLM execution with processors and callbacks.
 // This is Go's equivalent to ADK's BaseLlmFlow.
 type LlmFlow struct {
@@ -237,9 +327,25 @@ type LlmFlow struct {
 	// LLM provider
 	LlmProvider LlmProvider
 
+	// Live provider for CFC mode (optional)
+	LiveProvider LiveLlmProvider
+
 	// Configuration
 	AgentNameLabelKey string
 	MaxSteps          int
+
+	// Tracing (optional)
+	Tracer        Tracer
+	TraceCallback TraceCallback
+
+	// Default run config
+	DefaultRunConfig *RunConfig
+}
+
+// LiveLlmProvider is the interface for bidirectional streaming LLM backends
+type LiveLlmProvider interface {
+	// RunLive runs bidirectional streaming with the LLM
+	RunLive(ctx context.Context, requestQueue *LiveRequestQueue) <-chan *LlmResponse
 }
 
 // LlmProvider is the interface for LLM backends
@@ -415,7 +521,8 @@ func (f *LlmFlow) runOneStepAsync(ctx context.Context, invCtx *InvocationContext
 	return output
 }
 
-// callLlmAsync calls the LLM with before/after callbacks
+// callLlmAsync calls the LLM with tracing, callbacks, and streaming support.
+// This is Go's equivalent to ADK's _call_llm_with_tracing().
 func (f *LlmFlow) callLlmAsync(
 	ctx context.Context,
 	invCtx *InvocationContext,
@@ -427,13 +534,21 @@ func (f *LlmFlow) callLlmAsync(
 	go func() {
 		defer close(output)
 
+		// Start tracing span
+		tracer := f.Tracer
+		if tracer == nil {
+			tracer = &NoopTracer{}
+		}
+		spanCtx, span := tracer.StartSpan(ctx, "call_llm")
+		defer span.End()
+
 		// Run before-model callbacks
 		callbackCtx := NewCallbackContext(invCtx, modelResponseEvent.Actions)
 
 		for _, callback := range f.BeforeModelCallbacks {
 			response, err := callback(callbackCtx, llmRequest)
 			if err != nil {
-				// Callback error - yield error response
+				span.RecordError(err)
 				output <- &LlmResponse{
 					ErrorCode:    "callback_error",
 					ErrorMessage: err.Error(),
@@ -458,6 +573,55 @@ func (f *LlmFlow) callLlmAsync(
 			llmRequest.Config.Labels[f.AgentNameLabelKey] = invCtx.AgentName
 		}
 
+		// Get run config
+		runConfig := f.getRunConfig(invCtx)
+		streamingMode := StreamingModeNone
+		supportCFC := false
+		if runConfig != nil {
+			streamingMode = runConfig.StreamingMode
+			supportCFC = runConfig.SupportCFC
+		}
+
+		// CFC (Continuous Function Calling) mode with LiveRequestQueue
+		if supportCFC && f.LiveProvider != nil {
+			// Set up live request queue
+			liveQueue := NewLiveRequestQueue()
+			invCtx.LiveRequestQueue = liveQueue
+
+			// Send initial request
+			liveQueue.Send(llmRequest)
+
+			// Run live mode
+			responses := f.LiveProvider.RunLive(spanCtx, liveQueue)
+			for llmResponse := range f.runAndHandleErrorStream(spanCtx, invCtx, responses, llmRequest, modelResponseEvent) {
+				// Run after-model callback
+				if alteredResponse := f.handleAfterModelCallback(callbackCtx, llmResponse, span); alteredResponse != nil {
+					llmResponse = alteredResponse
+				}
+
+				// Only yield partial responses in SSE streaming mode
+				if streamingMode == StreamingModeSSE || !llmResponse.Partial {
+					output <- llmResponse
+				}
+
+				// Handle turn completion
+				if llmResponse.TurnComplete {
+					liveQueue.Close()
+				}
+			}
+			return
+		}
+
+		// Standard mode - check LLM call limit
+		if err := invCtx.IncrementLLMCallCount(); err != nil {
+			span.RecordError(err)
+			output <- &LlmResponse{
+				ErrorCode:    "call_limit_exceeded",
+				ErrorMessage: err.Error(),
+			}
+			return
+		}
+
 		// Call the LLM
 		if f.LlmProvider == nil {
 			output <- &LlmResponse{
@@ -467,22 +631,89 @@ func (f *LlmFlow) callLlmAsync(
 			return
 		}
 
-		// Execute with error handling
-		responses := f.runWithErrorHandling(ctx, invCtx, llmRequest, modelResponseEvent)
+		// Determine if we should stream
+		shouldStream := streamingMode == StreamingModeSSE
 
-		for response := range responses {
-			// Run after-model callbacks
-			for _, callback := range f.AfterModelCallbacks {
-				alteredResponse, err := callback(callbackCtx, response)
-				if err != nil {
-					// Log error but continue
-					continue
-				}
-				if alteredResponse != nil {
-					response = alteredResponse
-				}
+		// Execute with error handling
+		responses := f.runWithErrorHandling(spanCtx, invCtx, llmRequest, modelResponseEvent)
+
+		for llmResponse := range responses {
+			// Trace the LLM call
+			if f.TraceCallback != nil {
+				f.TraceCallback(invCtx, modelResponseEvent.ID, llmRequest, llmResponse)
+			}
+			span.SetAttribute("response_partial", llmResponse.Partial)
+
+			// Run after-model callback
+			if alteredResponse := f.handleAfterModelCallback(callbackCtx, llmResponse, span); alteredResponse != nil {
+				llmResponse = alteredResponse
 			}
 
+			// Only yield partial responses in SSE streaming mode
+			if shouldStream || !llmResponse.Partial {
+				output <- llmResponse
+			}
+		}
+	}()
+
+	return output
+}
+
+// getRunConfig gets the run configuration for this invocation
+func (f *LlmFlow) getRunConfig(invCtx *InvocationContext) *RunConfig {
+	if invCtx.RunConfig != nil {
+		if rc, ok := invCtx.RunConfig.(*RunConfig); ok {
+			return rc
+		}
+	}
+	return f.DefaultRunConfig
+}
+
+// handleAfterModelCallback runs after-model callbacks and returns altered response if any
+func (f *LlmFlow) handleAfterModelCallback(callbackCtx *CallbackContext, response *LlmResponse, span Span) *LlmResponse {
+	for _, callback := range f.AfterModelCallbacks {
+		alteredResponse, err := callback(callbackCtx, response)
+		if err != nil {
+			span.RecordError(err)
+			continue
+		}
+		if alteredResponse != nil {
+			return alteredResponse
+		}
+	}
+	return nil
+}
+
+// runAndHandleErrorStream wraps a response stream with error handling
+func (f *LlmFlow) runAndHandleErrorStream(
+	ctx context.Context,
+	invCtx *InvocationContext,
+	responses <-chan *LlmResponse,
+	llmRequest *LlmRequest,
+	modelResponseEvent *AsyncEvent,
+) <-chan *LlmResponse {
+	output := make(chan *LlmResponse)
+
+	go func() {
+		defer close(output)
+
+		for response := range responses {
+			if response.ErrorCode != "" {
+				// Try error recovery callbacks
+				callbackCtx := NewCallbackContext(invCtx, modelResponseEvent.Actions)
+				err := fmt.Errorf("%s: %s", response.ErrorCode, response.ErrorMessage)
+
+				for _, callback := range f.OnModelErrorCallbacks {
+					recoveryResponse, cbErr := callback(callbackCtx, llmRequest, err)
+					if cbErr != nil {
+						continue
+					}
+					if recoveryResponse != nil {
+						output <- recoveryResponse
+						return
+					}
+				}
+			}
 			output <- response
 		}
 	}()
