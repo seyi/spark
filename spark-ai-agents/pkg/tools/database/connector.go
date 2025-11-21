@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 )
 
 // DatabaseConnector provides vendor-neutral database access through Spark SQL.
@@ -59,7 +58,7 @@ type DatabaseConnector interface {
 // Provides distributed query execution across multiple database types.
 type SparkSQLConnector struct {
 	config      *DatabaseConfig
-	connected   bool
+	session     *SparkSession
 	sparkConfig map[string]string
 }
 
@@ -73,9 +72,15 @@ func NewSparkSQLConnector(config *DatabaseConfig) (*SparkSQLConnector, error) {
 		return nil, fmt.Errorf("connection string is required for database type %s", config.Type)
 	}
 
+	// Create Spark session
+	session, err := NewSparkSession(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Spark session: %w", err)
+	}
+
 	connector := &SparkSQLConnector{
 		config:      config,
-		connected:   false,
+		session:     session,
 		sparkConfig: make(map[string]string),
 	}
 
@@ -229,72 +234,31 @@ func (s *SparkSQLConnector) buildSparkNativeConfig() error {
 // Connect establishes connection to the database.
 // For Spark SQL, this means initializing the Spark session with appropriate config.
 func (s *SparkSQLConnector) Connect(ctx context.Context) error {
-	if s.connected {
-		return nil // Already connected
-	}
-
-	// In a real implementation, this would:
-	// 1. Create/get SparkSession with the configured settings
-	// 2. Test connectivity by executing a simple query
-	// 3. Set s.connected = true
-
-	// For now, we'll simulate connection
-	// TODO: Integrate with actual Spark session management
-	s.connected = true
-
-	return nil
+	// Delegate to Spark session
+	return s.session.Connect(ctx)
 }
 
 // Disconnect closes the database connection.
 func (s *SparkSQLConnector) Disconnect(ctx context.Context) error {
-	if !s.connected {
-		return nil
-	}
-
-	// In a real implementation, this would stop the Spark session
-	// or release the connection pool
-	s.connected = false
-
-	return nil
+	// Delegate to Spark session
+	return s.session.Disconnect(ctx)
 }
 
 // IsConnected returns true if currently connected.
 func (s *SparkSQLConnector) IsConnected() bool {
-	return s.connected
+	return s.session.IsConnected()
 }
 
 // ExecuteQuery executes a SQL query and returns results.
 // Query is executed through Spark SQL for distributed processing.
 func (s *SparkSQLConnector) ExecuteQuery(ctx context.Context, query string) (*QueryResult, error) {
-	if !s.connected {
-		return nil, fmt.Errorf("not connected to database")
-	}
-
 	// Validate query based on security settings
 	if err := s.ValidateQuery(query); err != nil {
 		return nil, fmt.Errorf("query validation failed: %w", err)
 	}
 
-	startTime := time.Now()
-
-	// In a real implementation, this would:
-	// 1. Execute query through Spark SQL
-	// 2. Collect results (respecting MaxResultRows)
-	// 3. Convert Spark DataFrame to QueryResult
-	// 4. Handle caching if enabled
-
-	// Simulated result for now
-	result := &QueryResult{
-		Columns:        []string{"column1", "column2"},
-		Rows:           []map[string]interface{}{},
-		RowCount:       0,
-		ExecutionTime:  time.Since(startTime).Seconds(),
-		Query:          query,
-		Cached:         s.config.EnableCaching,
-		BytesProcessed: 0,
-	}
-
-	return result, nil
+	// Execute through Spark session (REAL implementation)
+	return s.session.ExecuteQuery(ctx, query)
 }
 
 // ValidateQuery checks if a query is allowed based on WriteMode and security settings.
@@ -344,17 +308,11 @@ func (s *SparkSQLConnector) ValidateQuery(query string) error {
 
 // GetDatabases lists all accessible databases/datasets.
 func (s *SparkSQLConnector) GetDatabases(ctx context.Context) ([]string, error) {
-	if !s.connected {
-		return nil, fmt.Errorf("not connected to database")
+	// Execute through Spark session (REAL implementation)
+	databases, err := s.session.GetDatabases(ctx)
+	if err != nil {
+		return nil, err
 	}
-
-	// In a real implementation:
-	// - BigQuery: list datasets in project
-	// - PostgreSQL: SELECT datname FROM pg_database
-	// - Spark: SHOW DATABASES
-
-	// Simulated for now
-	databases := []string{}
 
 	// Apply AllowedDatabases filter if configured
 	if len(s.config.AllowedDatabases) > 0 {
@@ -375,10 +333,6 @@ func (s *SparkSQLConnector) GetDatabases(ctx context.Context) ([]string, error) 
 
 // GetDatabaseInfo retrieves metadata about a specific database.
 func (s *SparkSQLConnector) GetDatabaseInfo(ctx context.Context, database string) (*DatabaseInfo, error) {
-	if !s.connected {
-		return nil, fmt.Errorf("not connected to database")
-	}
-
 	// Check if database is allowed
 	if len(s.config.AllowedDatabases) > 0 {
 		allowed := false
@@ -393,7 +347,7 @@ func (s *SparkSQLConnector) GetDatabaseInfo(ctx context.Context, database string
 		}
 	}
 
-	// In a real implementation, execute DESCRIBE DATABASE or equivalent
+	// For now, return basic info (could query DESCRIBE DATABASE in future)
 	info := &DatabaseInfo{
 		Name:               database,
 		FullyQualifiedName: database,
@@ -406,15 +360,11 @@ func (s *SparkSQLConnector) GetDatabaseInfo(ctx context.Context, database string
 
 // GetTables lists all tables in a database.
 func (s *SparkSQLConnector) GetTables(ctx context.Context, database string) ([]string, error) {
-	if !s.connected {
-		return nil, fmt.Errorf("not connected to database")
+	// Execute through Spark session (REAL implementation)
+	tables, err := s.session.GetTables(ctx, database)
+	if err != nil {
+		return nil, err
 	}
-
-	// In a real implementation:
-	// - Execute: SHOW TABLES IN database
-	// - Or query information_schema.tables
-
-	tables := []string{}
 
 	// Apply AllowedTables filter if configured
 	if len(s.config.AllowedTables) > 0 {
@@ -436,36 +386,24 @@ func (s *SparkSQLConnector) GetTables(ctx context.Context, database string) ([]s
 
 // GetTableInfo retrieves schema and metadata for a table.
 func (s *SparkSQLConnector) GetTableInfo(ctx context.Context, database, table string) (*TableInfo, error) {
-	if !s.connected {
-		return nil, fmt.Errorf("not connected to database")
-	}
-
-	// In a real implementation:
-	// - Execute: DESCRIBE TABLE database.table
-	// - Query information_schema for metadata
-
-	info := &TableInfo{
-		Database:           database,
-		Table:              table,
-		FullyQualifiedName: fmt.Sprintf("%s.%s", database, table),
-		Type:               "TABLE",
-		Columns:            []ColumnInfo{},
-		RowCount:           -1,
-		SizeBytes:          -1,
-		Metadata:           make(map[string]interface{}),
-	}
-
-	return info, nil
+	// Execute through Spark session (REAL implementation)
+	return s.session.GetTableSchema(ctx, database, table)
 }
 
 // GetConnectionInfo returns connection details for debugging.
 func (s *SparkSQLConnector) GetConnectionInfo() map[string]interface{} {
+	stats := s.session.GetStats()
 	return map[string]interface{}{
-		"type":              s.config.Type,
-		"connection_string": s.config.ConnectionString,
-		"database":          s.config.Database,
-		"connected":         s.connected,
-		"write_mode":        s.config.WriteMode,
-		"spark_config":      s.sparkConfig,
+		"type":               s.config.Type,
+		"connection_string":  s.config.ConnectionString,
+		"database":           s.config.Database,
+		"connected":          s.session.IsConnected(),
+		"write_mode":         s.config.WriteMode,
+		"spark_config":       s.sparkConfig,
+		"queries_executed":   stats.QueriesExecuted,
+		"total_bytes":        stats.TotalBytes,
+		"total_time_seconds": stats.TotalTime.Seconds(),
+		"cache_hits":         stats.CacheHits,
+		"cache_misses":       stats.CacheMisses,
 	}
 }
