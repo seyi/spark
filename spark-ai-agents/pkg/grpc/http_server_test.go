@@ -15,15 +15,19 @@
 package grpc
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/apache/spark/spark-ai-agents/pkg/agent"
+	"github.com/apache/spark/spark-ai-agents/pkg/runtime"
 )
 
 // Mock agent for testing
@@ -492,5 +496,225 @@ func TestExecuteWithError(t *testing.T) {
 
 	if resp.Error == "" {
 		t.Error("Expected error message")
+	}
+}
+
+// Mock async agent for streaming tests
+type mockAsyncAgent struct {
+	id       string
+	name     string
+	events   []*runtime.AsyncEvent
+	delay    time.Duration
+}
+
+func (m *mockAsyncAgent) ID() string   { return m.id }
+func (m *mockAsyncAgent) Name() string { return m.name }
+
+func (m *mockAsyncAgent) RunAsync(ctx context.Context, invCtx *runtime.InvocationContext) <-chan *runtime.AsyncEvent {
+	output := make(chan *runtime.AsyncEvent)
+
+	go func() {
+		defer close(output)
+
+		for _, event := range m.events {
+			if m.delay > 0 {
+				time.Sleep(m.delay)
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case output <- event:
+			}
+		}
+	}()
+
+	return output
+}
+
+func TestHandleStreamExecute(t *testing.T) {
+	// Create async runtime
+	asyncRuntime := runtime.NewAsyncAgentRuntime(nil)
+
+	// Create HTTP server with async runtime
+	server := NewAgentHTTPServer(nil).WithAsyncRuntime(asyncRuntime)
+
+	// Create mock async agent with test events
+	mockEvents := []*runtime.AsyncEvent{
+		{
+			ID:        "event-1",
+			Type:      runtime.EventTypeStateChange,
+			Content:   "Processing...",
+			Partial:   true,
+			Timestamp: time.Now(),
+		},
+		{
+			ID:        "event-2",
+			Type:      runtime.EventTypeToolCall,
+			Content:   "Calling tool: search",
+			Partial:   false,
+			Timestamp: time.Now(),
+		},
+		{
+			ID:        "event-3",
+			Type:      runtime.EventTypeMessage,
+			Content:   "Final result",
+			Partial:   false,
+			Timestamp: time.Now(),
+		},
+	}
+
+	mockAsync := &mockAsyncAgent{
+		id:     "streaming-agent",
+		name:   "Streaming Agent",
+		events: mockEvents,
+	}
+	server.RegisterAsyncAgent("streaming-agent", mockAsync)
+
+	tests := []struct {
+		name           string
+		method         string
+		body           interface{}
+		wantStatus     int
+		wantEventCount int
+	}{
+		{
+			name:   "successful streaming",
+			method: http.MethodPost,
+			body: StreamExecuteRequest{
+				AgentID: "streaming-agent",
+				Input:   "stream test",
+			},
+			wantStatus:     http.StatusOK,
+			wantEventCount: 3, // 3 events + done event
+		},
+		{
+			name:   "agent not found",
+			method: http.MethodPost,
+			body: StreamExecuteRequest{
+				AgentID: "nonexistent",
+				Input:   "test",
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "method not allowed",
+			method:     http.MethodGet,
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body []byte
+			var err error
+
+			if tt.body != nil {
+				body, err = json.Marshal(tt.body)
+				if err != nil {
+					t.Fatalf("Failed to marshal body: %v", err)
+				}
+			}
+
+			req := httptest.NewRequest(tt.method, "/api/v1/agents/stream", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			server.HandleStreamExecute(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("Status = %d, want %d", w.Code, tt.wantStatus)
+			}
+
+			if tt.wantStatus == http.StatusOK {
+				// Verify SSE format
+				contentType := w.Header().Get("Content-Type")
+				if contentType != "text/event-stream" {
+					t.Errorf("Content-Type = %q, want text/event-stream", contentType)
+				}
+
+				// Parse SSE events
+				body := w.Body.String()
+				eventCount := 0
+				scanner := bufio.NewScanner(strings.NewReader(body))
+				for scanner.Scan() {
+					line := scanner.Text()
+					if strings.HasPrefix(line, "event:") {
+						eventCount++
+					}
+				}
+
+				// Should have at least the expected events (plus done event)
+				if eventCount < tt.wantEventCount {
+					t.Errorf("Got %d events, want at least %d", eventCount, tt.wantEventCount)
+				}
+
+				// Verify done event is present
+				if !strings.Contains(body, "event: done") {
+					t.Error("Expected done event in response")
+				}
+			}
+		})
+	}
+}
+
+func TestHandleStreamExecute_NoAsyncRuntime(t *testing.T) {
+	// Create server without async runtime
+	server := NewAgentHTTPServer(nil)
+
+	body, _ := json.Marshal(StreamExecuteRequest{
+		AgentID: "test",
+		Input:   "test",
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/stream", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	server.HandleStreamExecute(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestRegisterAndGetAsyncAgent(t *testing.T) {
+	server := NewAgentHTTPServer(nil)
+
+	mockAsync := &mockAsyncAgent{id: "async-test", name: "Async Test"}
+	server.RegisterAsyncAgent("async-test", mockAsync)
+
+	// Test successful get
+	ag, ok := server.GetAsyncAgent("async-test")
+	if !ok {
+		t.Error("Expected async agent to be found")
+	}
+	if ag != mockAsync {
+		t.Error("Got different async agent instance")
+	}
+
+	// Test not found
+	_, ok = server.GetAsyncAgent("nonexistent")
+	if ok {
+		t.Error("Expected async agent not to be found")
+	}
+}
+
+func TestStreamingRouteRegistered(t *testing.T) {
+	asyncRuntime := runtime.NewAsyncAgentRuntime(nil)
+	server := NewAgentHTTPServer(nil).WithAsyncRuntime(asyncRuntime)
+
+	mux := http.NewServeMux()
+	server.SetupRoutes(mux)
+
+	// Test streaming route is registered
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/stream", nil)
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	// Should not get 404 (will get 400 for invalid body)
+	if w.Code == http.StatusNotFound {
+		t.Error("Stream route not registered")
 	}
 }
