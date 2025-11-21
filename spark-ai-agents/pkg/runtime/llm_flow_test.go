@@ -1114,3 +1114,769 @@ func TestTurnCompletion(t *testing.T) {
 		}
 	})
 }
+
+// ============================================================================
+// Plugin Manager Tests
+// ============================================================================
+
+func TestBasePlugin(t *testing.T) {
+	t.Run("NewBasePlugin", func(t *testing.T) {
+		plugin := NewBasePlugin("test-plugin", 50)
+
+		if plugin.Name() != "test-plugin" {
+			t.Errorf("expected name 'test-plugin', got %s", plugin.Name())
+		}
+		if plugin.Priority() != 50 {
+			t.Errorf("expected priority 50, got %d", plugin.Priority())
+		}
+		if !plugin.Enabled() {
+			t.Error("plugin should be enabled by default")
+		}
+	})
+
+	t.Run("EnableDisable", func(t *testing.T) {
+		plugin := NewBasePlugin("test", 50)
+
+		plugin.SetEnabled(false)
+		if plugin.Enabled() {
+			t.Error("plugin should be disabled")
+		}
+
+		plugin.SetEnabled(true)
+		if !plugin.Enabled() {
+			t.Error("plugin should be enabled")
+		}
+	})
+
+	t.Run("AddCallbacks", func(t *testing.T) {
+		plugin := NewBasePlugin("test", 50)
+
+		plugin.AddBeforeModelCallback(func(ctx *CallbackContext, req *LlmRequest) (*LlmResponse, error) {
+			return nil, nil
+		})
+		plugin.AddAfterModelCallback(func(ctx *CallbackContext, resp *LlmResponse) (*LlmResponse, error) {
+			return nil, nil
+		})
+		plugin.AddOnModelErrorCallback(func(ctx *CallbackContext, req *LlmRequest, err error) (*LlmResponse, error) {
+			return nil, nil
+		})
+		plugin.AddBeforeToolCallback(func(ctx *ToolContext, toolName string, args map[string]interface{}) error {
+			return nil
+		})
+		plugin.AddAfterToolCallback(func(ctx *ToolContext, toolName string, args map[string]interface{}, result interface{}, err error) error {
+			return nil
+		})
+
+		if len(plugin.BeforeModel()) != 1 {
+			t.Error("expected 1 before-model callback")
+		}
+		if len(plugin.AfterModel()) != 1 {
+			t.Error("expected 1 after-model callback")
+		}
+		if len(plugin.OnModelError()) != 1 {
+			t.Error("expected 1 on-model-error callback")
+		}
+		if len(plugin.BeforeTool()) != 1 {
+			t.Error("expected 1 before-tool callback")
+		}
+		if len(plugin.AfterTool()) != 1 {
+			t.Error("expected 1 after-tool callback")
+		}
+	})
+
+	t.Run("InitializeCleanup", func(t *testing.T) {
+		plugin := NewBasePlugin("test", 50)
+		ctx := context.Background()
+
+		if err := plugin.Initialize(ctx); err != nil {
+			t.Errorf("initialize should succeed: %v", err)
+		}
+		if err := plugin.Cleanup(ctx); err != nil {
+			t.Errorf("cleanup should succeed: %v", err)
+		}
+	})
+}
+
+func TestPluginManager(t *testing.T) {
+	t.Run("NewPluginManager", func(t *testing.T) {
+		pm := NewPluginManager()
+		if pm == nil {
+			t.Fatal("plugin manager should not be nil")
+		}
+		if len(pm.ListPlugins()) != 0 {
+			t.Error("should have no plugins initially")
+		}
+	})
+
+	t.Run("RegisterPlugin", func(t *testing.T) {
+		pm := NewPluginManager()
+		plugin := NewBasePlugin("test", 50)
+
+		if err := pm.Register(plugin); err != nil {
+			t.Errorf("register should succeed: %v", err)
+		}
+
+		plugins := pm.ListPlugins()
+		if len(plugins) != 1 {
+			t.Errorf("expected 1 plugin, got %d", len(plugins))
+		}
+		if plugins[0] != "test" {
+			t.Errorf("expected plugin name 'test', got %s", plugins[0])
+		}
+	})
+
+	t.Run("RegisterDuplicate", func(t *testing.T) {
+		pm := NewPluginManager()
+		plugin1 := NewBasePlugin("test", 50)
+		plugin2 := NewBasePlugin("test", 60)
+
+		pm.Register(plugin1)
+		err := pm.Register(plugin2)
+		if err == nil {
+			t.Error("registering duplicate should fail")
+		}
+	})
+
+	t.Run("PriorityOrdering", func(t *testing.T) {
+		pm := NewPluginManager()
+
+		// Register in non-priority order
+		pm.Register(NewBasePlugin("low", 10))
+		pm.Register(NewBasePlugin("high", 100))
+		pm.Register(NewBasePlugin("medium", 50))
+
+		plugins := pm.ListPlugins()
+		if len(plugins) != 3 {
+			t.Fatalf("expected 3 plugins, got %d", len(plugins))
+		}
+		// Higher priority should come first
+		if plugins[0] != "high" {
+			t.Errorf("expected 'high' first, got %s", plugins[0])
+		}
+		if plugins[1] != "medium" {
+			t.Errorf("expected 'medium' second, got %s", plugins[1])
+		}
+		if plugins[2] != "low" {
+			t.Errorf("expected 'low' third, got %s", plugins[2])
+		}
+	})
+
+	t.Run("UnregisterPlugin", func(t *testing.T) {
+		pm := NewPluginManager()
+		plugin := NewBasePlugin("test", 50)
+		pm.Register(plugin)
+
+		if err := pm.Unregister("test"); err != nil {
+			t.Errorf("unregister should succeed: %v", err)
+		}
+		if len(pm.ListPlugins()) != 0 {
+			t.Error("should have no plugins after unregister")
+		}
+	})
+
+	t.Run("UnregisterNonexistent", func(t *testing.T) {
+		pm := NewPluginManager()
+		if err := pm.Unregister("nonexistent"); err == nil {
+			t.Error("unregistering nonexistent should fail")
+		}
+	})
+
+	t.Run("GetPlugin", func(t *testing.T) {
+		pm := NewPluginManager()
+		plugin := NewBasePlugin("test", 50)
+		pm.Register(plugin)
+
+		retrieved, ok := pm.GetPlugin("test")
+		if !ok {
+			t.Error("should find registered plugin")
+		}
+		if retrieved.Name() != "test" {
+			t.Error("retrieved plugin should match")
+		}
+
+		_, ok = pm.GetPlugin("nonexistent")
+		if ok {
+			t.Error("should not find nonexistent plugin")
+		}
+	})
+
+	t.Run("EnableDisablePlugin", func(t *testing.T) {
+		pm := NewPluginManager()
+		plugin := NewBasePlugin("test", 50)
+		pm.Register(plugin)
+
+		if err := pm.DisablePlugin("test"); err != nil {
+			t.Errorf("disable should succeed: %v", err)
+		}
+		if plugin.Enabled() {
+			t.Error("plugin should be disabled")
+		}
+
+		if err := pm.EnablePlugin("test"); err != nil {
+			t.Errorf("enable should succeed: %v", err)
+		}
+		if !plugin.Enabled() {
+			t.Error("plugin should be enabled")
+		}
+
+		if err := pm.EnablePlugin("nonexistent"); err == nil {
+			t.Error("enabling nonexistent should fail")
+		}
+	})
+
+	t.Run("InitializeAllPlugins", func(t *testing.T) {
+		pm := NewPluginManager()
+		initialized := false
+
+		type customPlugin struct {
+			*BasePlugin
+			initialized *bool
+		}
+
+		cp := &customPlugin{
+			BasePlugin:  NewBasePlugin("custom", 50),
+			initialized: &initialized,
+		}
+
+		pm.Register(cp.BasePlugin)
+
+		ctx := context.Background()
+		if err := pm.Initialize(ctx); err != nil {
+			t.Errorf("initialize should succeed: %v", err)
+		}
+
+		// Initialize again should be no-op
+		if err := pm.Initialize(ctx); err != nil {
+			t.Errorf("second initialize should succeed: %v", err)
+		}
+	})
+
+	t.Run("CleanupAllPlugins", func(t *testing.T) {
+		pm := NewPluginManager()
+		pm.Register(NewBasePlugin("test", 50))
+
+		ctx := context.Background()
+		pm.Initialize(ctx)
+
+		if err := pm.Cleanup(ctx); err != nil {
+			t.Errorf("cleanup should succeed: %v", err)
+		}
+
+		// Cleanup again should be no-op
+		if err := pm.Cleanup(ctx); err != nil {
+			t.Errorf("second cleanup should succeed: %v", err)
+		}
+	})
+}
+
+func TestPluginManagerCallbacks(t *testing.T) {
+	t.Run("RunBeforeModelCallbacks", func(t *testing.T) {
+		pm := NewPluginManager()
+		callOrder := []string{}
+
+		plugin1 := NewBasePlugin("first", 100)
+		plugin1.AddBeforeModelCallback(func(ctx *CallbackContext, req *LlmRequest) (*LlmResponse, error) {
+			callOrder = append(callOrder, "first")
+			return nil, nil
+		})
+
+		plugin2 := NewBasePlugin("second", 50)
+		plugin2.AddBeforeModelCallback(func(ctx *CallbackContext, req *LlmRequest) (*LlmResponse, error) {
+			callOrder = append(callOrder, "second")
+			return nil, nil
+		})
+
+		pm.Register(plugin1)
+		pm.Register(plugin2)
+
+		callbackCtx := &CallbackContext{}
+		req := &LlmRequest{}
+
+		resp, err := pm.RunBeforeModelCallbacks(callbackCtx, req)
+		if err != nil {
+			t.Errorf("callbacks should not fail: %v", err)
+		}
+		if resp != nil {
+			t.Error("no short-circuit response expected")
+		}
+
+		if len(callOrder) != 2 {
+			t.Fatalf("expected 2 callbacks, got %d", len(callOrder))
+		}
+		if callOrder[0] != "first" || callOrder[1] != "second" {
+			t.Errorf("callbacks called in wrong order: %v", callOrder)
+		}
+	})
+
+	t.Run("BeforeModelShortCircuit", func(t *testing.T) {
+		pm := NewPluginManager()
+		secondCalled := false
+
+		plugin1 := NewBasePlugin("first", 100)
+		plugin1.AddBeforeModelCallback(func(ctx *CallbackContext, req *LlmRequest) (*LlmResponse, error) {
+			return &LlmResponse{Content: &Content{Parts: []Part{{Text: "short-circuited"}}}}, nil
+		})
+
+		plugin2 := NewBasePlugin("second", 50)
+		plugin2.AddBeforeModelCallback(func(ctx *CallbackContext, req *LlmRequest) (*LlmResponse, error) {
+			secondCalled = true
+			return nil, nil
+		})
+
+		pm.Register(plugin1)
+		pm.Register(plugin2)
+
+		callbackCtx := &CallbackContext{}
+		req := &LlmRequest{}
+
+		resp, err := pm.RunBeforeModelCallbacks(callbackCtx, req)
+		if err != nil {
+			t.Errorf("should not error: %v", err)
+		}
+		if resp == nil {
+			t.Fatal("expected short-circuit response")
+		}
+		if secondCalled {
+			t.Error("second callback should not be called after short-circuit")
+		}
+	})
+
+	t.Run("DisabledPluginSkipped", func(t *testing.T) {
+		pm := NewPluginManager()
+		called := false
+
+		plugin := NewBasePlugin("test", 50)
+		plugin.AddBeforeModelCallback(func(ctx *CallbackContext, req *LlmRequest) (*LlmResponse, error) {
+			called = true
+			return nil, nil
+		})
+		plugin.SetEnabled(false)
+
+		pm.Register(plugin)
+
+		callbackCtx := &CallbackContext{}
+		pm.RunBeforeModelCallbacks(callbackCtx, &LlmRequest{})
+
+		if called {
+			t.Error("disabled plugin callback should not be called")
+		}
+	})
+
+	t.Run("RunAfterModelCallbacks", func(t *testing.T) {
+		pm := NewPluginManager()
+
+		plugin := NewBasePlugin("test", 50)
+		plugin.AddAfterModelCallback(func(ctx *CallbackContext, resp *LlmResponse) (*LlmResponse, error) {
+			return &LlmResponse{
+				Content: &Content{Parts: []Part{{Text: "modified"}}},
+			}, nil
+		})
+
+		pm.Register(plugin)
+
+		callbackCtx := &CallbackContext{}
+		resp := &LlmResponse{Content: &Content{Parts: []Part{{Text: "original"}}}}
+
+		result, err := pm.RunAfterModelCallbacks(callbackCtx, resp)
+		if err != nil {
+			t.Errorf("should not error: %v", err)
+		}
+		if result.Content.Parts[0].Text != "modified" {
+			t.Error("response should be modified")
+		}
+	})
+
+	t.Run("RunOnModelErrorCallbacks", func(t *testing.T) {
+		pm := NewPluginManager()
+
+		plugin := NewBasePlugin("test", 50)
+		plugin.AddOnModelErrorCallback(func(ctx *CallbackContext, req *LlmRequest, err error) (*LlmResponse, error) {
+			return &LlmResponse{Content: &Content{Parts: []Part{{Text: "recovered"}}}}, nil
+		})
+
+		pm.Register(plugin)
+
+		callbackCtx := &CallbackContext{}
+		testErr := errors.New("test error")
+
+		resp, err := pm.RunOnModelErrorCallbacks(callbackCtx, &LlmRequest{}, testErr)
+		if err != nil {
+			t.Errorf("should not error: %v", err)
+		}
+		if resp == nil {
+			t.Fatal("expected recovery response")
+		}
+		if resp.Content.Parts[0].Text != "recovered" {
+			t.Error("response should be recovery response")
+		}
+	})
+
+	t.Run("RunBeforeToolCallbacks", func(t *testing.T) {
+		pm := NewPluginManager()
+		toolCalled := ""
+
+		plugin := NewBasePlugin("test", 50)
+		plugin.AddBeforeToolCallback(func(ctx *ToolContext, toolName string, args map[string]interface{}) error {
+			toolCalled = toolName
+			return nil
+		})
+
+		pm.Register(plugin)
+
+		invCtx := &InvocationContext{}
+		toolCtx := NewToolContext(invCtx, "test_tool")
+
+		err := pm.RunBeforeToolCallbacks(toolCtx, "test_tool", map[string]interface{}{"key": "value"})
+		if err != nil {
+			t.Errorf("should not error: %v", err)
+		}
+		if toolCalled != "test_tool" {
+			t.Errorf("expected tool 'test_tool', got %s", toolCalled)
+		}
+	})
+
+	t.Run("BeforeToolCallbackError", func(t *testing.T) {
+		pm := NewPluginManager()
+
+		plugin := NewBasePlugin("test", 50)
+		plugin.AddBeforeToolCallback(func(ctx *ToolContext, toolName string, args map[string]interface{}) error {
+			return errors.New("unauthorized")
+		})
+
+		pm.Register(plugin)
+
+		invCtx := &InvocationContext{}
+		toolCtx := NewToolContext(invCtx, "test_tool")
+
+		err := pm.RunBeforeToolCallbacks(toolCtx, "test_tool", nil)
+		if err == nil {
+			t.Error("should return error")
+		}
+	})
+
+	t.Run("RunAfterToolCallbacks", func(t *testing.T) {
+		pm := NewPluginManager()
+		resultCaptured := ""
+
+		plugin := NewBasePlugin("test", 50)
+		plugin.AddAfterToolCallback(func(ctx *ToolContext, toolName string, args map[string]interface{}, result interface{}, err error) error {
+			if str, ok := result.(string); ok {
+				resultCaptured = str
+			}
+			return nil
+		})
+
+		pm.Register(plugin)
+
+		invCtx := &InvocationContext{}
+		toolCtx := NewToolContext(invCtx, "test_tool")
+
+		err := pm.RunAfterToolCallbacks(toolCtx, "test_tool", nil, "tool_result", nil)
+		if err != nil {
+			t.Errorf("should not error: %v", err)
+		}
+		if resultCaptured != "tool_result" {
+			t.Errorf("expected 'tool_result', got %s", resultCaptured)
+		}
+	})
+}
+
+func TestBuiltInPlugins(t *testing.T) {
+	t.Run("LoggingPlugin", func(t *testing.T) {
+		plugin := NewLoggingPlugin(false) // Non-verbose for testing
+
+		if plugin.Name() != "logging" {
+			t.Errorf("expected name 'logging', got %s", plugin.Name())
+		}
+		if plugin.Priority() != 100 {
+			t.Errorf("expected priority 100, got %d", plugin.Priority())
+		}
+
+		// Verify callbacks are registered
+		if len(plugin.BeforeModel()) != 1 {
+			t.Error("expected before-model callback")
+		}
+		if len(plugin.AfterModel()) != 1 {
+			t.Error("expected after-model callback")
+		}
+		if len(plugin.BeforeTool()) != 1 {
+			t.Error("expected before-tool callback")
+		}
+		if len(plugin.AfterTool()) != 1 {
+			t.Error("expected after-tool callback")
+		}
+	})
+
+	t.Run("MetricsPlugin", func(t *testing.T) {
+		plugin := NewMetricsPlugin()
+
+		if plugin.Name() != "metrics" {
+			t.Errorf("expected name 'metrics', got %s", plugin.Name())
+		}
+
+		// Execute callbacks
+		ctx := &CallbackContext{}
+		req := &LlmRequest{}
+		resp := &LlmResponse{
+			UsageMetadata: &UsageMetadata{TotalTokens: 100},
+		}
+
+		for _, cb := range plugin.BeforeModel() {
+			cb(ctx, req)
+		}
+		for _, cb := range plugin.AfterModel() {
+			cb(ctx, resp)
+		}
+
+		invCtx := &InvocationContext{}
+		toolCtx := NewToolContext(invCtx, "test")
+		for _, cb := range plugin.BeforeTool() {
+			cb(toolCtx, "test", nil)
+		}
+
+		metrics := plugin.GetMetrics()
+		if metrics["model_calls"] != 1 {
+			t.Errorf("expected 1 model call, got %d", metrics["model_calls"])
+		}
+		if metrics["total_tokens"] != 100 {
+			t.Errorf("expected 100 tokens, got %d", metrics["total_tokens"])
+		}
+		if metrics["tool_calls"] != 1 {
+			t.Errorf("expected 1 tool call, got %d", metrics["tool_calls"])
+		}
+
+		plugin.Reset()
+		metrics = plugin.GetMetrics()
+		if metrics["model_calls"] != 0 {
+			t.Error("metrics should be reset")
+		}
+	})
+
+	t.Run("AuthorizationPlugin", func(t *testing.T) {
+		plugin := NewAuthorizationPlugin([]string{"allowed_tool"}, true)
+
+		if plugin.Name() != "authorization" {
+			t.Errorf("expected name 'authorization', got %s", plugin.Name())
+		}
+
+		invCtx := &InvocationContext{}
+		toolCtx := NewToolContext(invCtx, "test")
+
+		// Test allowed tool
+		for _, cb := range plugin.BeforeTool() {
+			err := cb(toolCtx, "allowed_tool", nil)
+			if err != nil {
+				t.Errorf("allowed tool should pass: %v", err)
+			}
+		}
+
+		// Test unauthorized tool
+		for _, cb := range plugin.BeforeTool() {
+			err := cb(toolCtx, "unauthorized_tool", nil)
+			if err == nil {
+				t.Error("unauthorized tool should fail")
+			}
+		}
+
+		// Test AllowTool
+		plugin.AllowTool("new_tool")
+		for _, cb := range plugin.BeforeTool() {
+			err := cb(toolCtx, "new_tool", nil)
+			if err != nil {
+				t.Errorf("newly allowed tool should pass: %v", err)
+			}
+		}
+	})
+
+	t.Run("RateLimitPlugin", func(t *testing.T) {
+		plugin := NewRateLimitPlugin(2)
+
+		if plugin.Name() != "rate_limit" {
+			t.Errorf("expected name 'rate_limit', got %s", plugin.Name())
+		}
+
+		ctx := &CallbackContext{}
+		req := &LlmRequest{}
+
+		// First two calls should succeed
+		for i := 0; i < 2; i++ {
+			for _, cb := range plugin.BeforeModel() {
+				resp, _ := cb(ctx, req)
+				if resp != nil {
+					t.Errorf("call %d should not be rate limited", i+1)
+				}
+			}
+		}
+
+		// Third call should be rate limited
+		for _, cb := range plugin.BeforeModel() {
+			resp, _ := cb(ctx, req)
+			if resp == nil {
+				t.Error("third call should be rate limited")
+			}
+			if resp.ErrorCode != "rate_limited" {
+				t.Errorf("expected 'rate_limited' error code, got %s", resp.ErrorCode)
+			}
+		}
+	})
+
+	t.Run("CachingPlugin", func(t *testing.T) {
+		plugin := NewCachingPlugin(time.Minute)
+
+		if plugin.Name() != "caching" {
+			t.Errorf("expected name 'caching', got %s", plugin.Name())
+		}
+
+		stats := plugin.GetCacheStats()
+		if stats["hits"] != 0 || stats["misses"] != 0 {
+			t.Error("cache should be empty initially")
+		}
+
+		ctx := &CallbackContext{}
+		req := &LlmRequest{SystemInstruction: "test"}
+
+		// First call is a miss
+		for _, cb := range plugin.BeforeModel() {
+			cb(ctx, req)
+		}
+
+		stats = plugin.GetCacheStats()
+		if stats["misses"] != 1 {
+			t.Errorf("expected 1 miss, got %d", stats["misses"])
+		}
+
+		plugin.ClearCache()
+		stats = plugin.GetCacheStats()
+		if stats["size"] != 0 {
+			t.Error("cache should be cleared")
+		}
+	})
+}
+
+func TestLlmFlowWithPluginManager(t *testing.T) {
+	t.Run("FlowIntegratesPluginManager", func(t *testing.T) {
+		pm := NewPluginManager()
+		callOrder := []string{}
+
+		// Add a plugin
+		plugin := NewBasePlugin("test", 50)
+		plugin.AddBeforeModelCallback(func(ctx *CallbackContext, req *LlmRequest) (*LlmResponse, error) {
+			callOrder = append(callOrder, "plugin_before")
+			return nil, nil
+		})
+		pm.Register(plugin)
+
+		// Create flow
+		provider := NewMockLlmProvider(&LlmResponse{
+			Content:      &Content{Parts: []Part{{Text: "response"}}},
+			TurnComplete: true,
+		})
+
+		flow := NewLlmFlow(provider).
+			WithPluginManager(pm).
+			WithBeforeModelCallback(func(ctx *CallbackContext, req *LlmRequest) (*LlmResponse, error) {
+				callOrder = append(callOrder, "direct_before")
+				return nil, nil
+			})
+		flow.MaxSteps = 1
+
+		ctx := context.Background()
+		input := &agent.AgentInput{Instruction: "test"}
+		invCtx := NewInvocationContext(ctx, input)
+		invCtx.AgentName = "test-agent"
+		invCtx.RunConfig = &RunConfig{MaxLLMCalls: 10}
+
+		events := flow.RunAsync(ctx, invCtx)
+		for range events {
+		}
+
+		// Verify both callbacks were called
+		if len(callOrder) < 2 {
+			t.Fatalf("expected at least 2 callbacks, got %d", len(callOrder))
+		}
+		// Plugin callbacks should run before direct callbacks
+		if callOrder[0] != "plugin_before" {
+			t.Errorf("plugin callback should run first, got %s", callOrder[0])
+		}
+		if callOrder[1] != "direct_before" {
+			t.Errorf("direct callback should run second, got %s", callOrder[1])
+		}
+	})
+
+	t.Run("PluginShortCircuitsFlow", func(t *testing.T) {
+		pm := NewPluginManager()
+
+		// Plugin that short-circuits
+		plugin := NewBasePlugin("blocker", 100)
+		plugin.AddBeforeModelCallback(func(ctx *CallbackContext, req *LlmRequest) (*LlmResponse, error) {
+			return &LlmResponse{
+				Content: &Content{Parts: []Part{{Text: "blocked"}}},
+			}, nil
+		})
+		pm.Register(plugin)
+
+		// Provider that should not be called
+		provider := NewMockLlmProvider(&LlmResponse{
+			Content: &Content{Parts: []Part{{Text: "from_provider"}}},
+		})
+
+		flow := NewLlmFlow(provider).WithPluginManager(pm)
+		flow.MaxSteps = 1
+
+		ctx := context.Background()
+		input := &agent.AgentInput{Instruction: "test"}
+		invCtx := NewInvocationContext(ctx, input)
+		invCtx.AgentName = "test-agent"
+		invCtx.RunConfig = &RunConfig{MaxLLMCalls: 10}
+
+		var lastEvent *AsyncEvent
+		for event := range flow.RunAsync(ctx, invCtx) {
+			lastEvent = event
+		}
+
+		if provider.callCount != 0 {
+			t.Errorf("provider should not be called when plugin short-circuits, got %d calls", provider.callCount)
+		}
+		if lastEvent == nil {
+			t.Fatal("should have received event")
+		}
+	})
+}
+
+func TestFlowWithToolCallbacks(t *testing.T) {
+	t.Run("DirectToolCallbacks", func(t *testing.T) {
+		beforeCalled := false
+		afterCalled := false
+
+		flow := NewLlmFlow(nil).
+			WithBeforeToolCallback(func(ctx *ToolContext, toolName string, args map[string]interface{}) error {
+				beforeCalled = true
+				return nil
+			}).
+			WithAfterToolCallback(func(ctx *ToolContext, toolName string, args map[string]interface{}, result interface{}, err error) error {
+				afterCalled = true
+				return nil
+			})
+
+		if len(flow.BeforeToolCallbacks) != 1 {
+			t.Error("expected 1 before-tool callback")
+		}
+		if len(flow.AfterToolCallbacks) != 1 {
+			t.Error("expected 1 after-tool callback")
+		}
+
+		// Manually invoke to test
+		invCtx := &InvocationContext{}
+		toolCtx := NewToolContext(invCtx, "test")
+
+		flow.BeforeToolCallbacks[0](toolCtx, "test", nil)
+		flow.AfterToolCallbacks[0](toolCtx, "test", nil, "result", nil)
+
+		if !beforeCalled {
+			t.Error("before callback should be called")
+		}
+		if !afterCalled {
+			t.Error("after callback should be called")
+		}
+	})
+}
