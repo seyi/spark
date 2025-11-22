@@ -99,7 +99,7 @@ type routerExecutor struct {
 	routerAgent *RouterAgent
 }
 
-func (e *routerExecutor) Execute(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+func (e *routerExecutor) Execute(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	startTime := time.Now()
 
 	// Create timeout context
@@ -400,7 +400,7 @@ type loadBalancerExecutor struct {
 	lbAgent *LoadBalancerAgent
 }
 
-func (e *loadBalancerExecutor) Execute(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+func (e *loadBalancerExecutor) Execute(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	if len(e.lbAgent.agents) == 0 {
 		return nil, fmt.Errorf("no agents configured")
 	}

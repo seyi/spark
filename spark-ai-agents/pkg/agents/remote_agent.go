@@ -58,21 +58,15 @@ func NewRemoteAgent(config RemoteAgentConfig) (*RemoteAgent, error) {
 		config.CardRefresh = 5 * time.Minute
 	}
 
-	// Create A2A client
+	// Create A2A client using discovery registry
 	var client a2a.A2AClient
 	if config.Endpoint != "" {
-		httpClient := config.HTTPClient
-		if httpClient == nil {
-			httpClient = &http.Client{
-				Timeout: config.Timeout,
-			}
+		// Create a registry and register the remote agent
+		registry := a2a.NewDiscoveryRegistry()
+		if config.Card != nil {
+			registry.Register(config.Card)
 		}
-
-		client = a2a.NewHTTPClient(a2a.HTTPClientConfig{
-			BaseURL:    config.Endpoint,
-			HTTPClient: httpClient,
-			Timeout:    config.Timeout,
-		})
+		client = a2a.NewHTTPA2AClient(registry)
 	}
 
 	remoteAgent := &RemoteAgent{
@@ -107,7 +101,7 @@ type remoteExecutor struct {
 	remoteAgent *RemoteAgent
 }
 
-func (e *remoteExecutor) Execute(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+func (e *remoteExecutor) Execute(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	startTime := time.Now()
 
 	// Ensure we have agent card
@@ -399,7 +393,7 @@ func (s *StreamingRemoteAgent) StreamExecute(ctx context.Context, input *agent.A
 	// Check if agent supports streaming
 	supportsStreaming := false
 	for _, pattern := range card.SupportedPatterns {
-		if pattern == a2a.PatternServerSentEvents {
+		if pattern == a2a.PatternSSE {
 			supportsStreaming = true
 			break
 		}
@@ -431,18 +425,17 @@ func (s *StreamingRemoteAgent) ConsumeStream(ctx context.Context, stream <-chan 
 						"chunk_count":     len(chunks),
 						"execution_time":  time.Since(startTime).Seconds(),
 						"remote_agent_id": s.agentID,
+						"completed_at":    time.Now(),
 					},
-					Timestamp: time.Now(),
 				}, nil
 			}
 
-			if chunk.Error != "" {
-				return nil, fmt.Errorf("stream error: %s", chunk.Error)
-			}
-
-			if chunk.Type == "content" {
-				chunks = append(chunks, chunk.Content)
-				lastResult += chunk.Content
+			// Process chunk data
+			if chunk.Data != nil {
+				if content, ok := chunk.Data.(string); ok {
+					chunks = append(chunks, content)
+					lastResult += content
+				}
 			}
 
 		case <-ctx.Done():
@@ -468,8 +461,12 @@ func (s *StreamingRemoteAgent) StreamWithCallback(ctx context.Context, input *ag
 				return nil
 			}
 
-			if chunk.Error != "" {
-				return fmt.Errorf("stream error: %s", chunk.Error)
+			// Check for final chunk
+			if chunk.Final {
+				if err := callback(chunk); err != nil {
+					return fmt.Errorf("callback error: %w", err)
+				}
+				return nil
 			}
 
 			if err := callback(chunk); err != nil {
@@ -595,21 +592,25 @@ func StreamToWriter(ctx context.Context, stream <-chan *a2a.StreamChunk, w io.Wr
 				return nil
 			}
 
-			if chunk.Error != "" {
-				return fmt.Errorf("stream error: %s", chunk.Error)
-			}
+			// Process chunk data as content
+			if chunk.Data != nil {
+				if content, ok := chunk.Data.(string); ok && content != "" {
+					_, err := w.Write([]byte(content))
+					if err != nil {
+						return fmt.Errorf("write error: %w", err)
+					}
 
-			if chunk.Type == "content" && chunk.Content != "" {
-				_, err := w.Write([]byte(chunk.Content))
-				if err != nil {
-					return fmt.Errorf("write error: %w", err)
-				}
-
-				if canFlush {
-					if err := fl.Flush(); err != nil {
-						return fmt.Errorf("flush error: %w", err)
+					if canFlush {
+						if err := fl.Flush(); err != nil {
+							return fmt.Errorf("flush error: %w", err)
+						}
 					}
 				}
+			}
+
+			// Check if final chunk
+			if chunk.Final {
+				return nil
 			}
 
 		case <-ctx.Done():

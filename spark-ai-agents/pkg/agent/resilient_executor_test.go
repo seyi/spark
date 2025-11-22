@@ -197,7 +197,10 @@ func TestResilientAgentExecutor_Timeout(t *testing.T) {
 	config.MetricsEnabled = false
 	config.LoggingEnabled = false
 	config.ExecutionTimeout = 100 * time.Millisecond
-	config.BackoffConfig.MaxRetries = 0 // No retries
+	// MaxRetries = 0 means infinite retries in the backoff package
+	// Use 1 to allow only initial attempt + 1 retry (we'll timeout on both)
+	config.BackoffConfig.MaxRetries = 1
+	config.BackoffConfig.InitialDelay = 10 * time.Millisecond
 
 	executor := NewResilientAgentExecutor(inner, config)
 	agent := &resilientTestAgent{name: "test-agent"}
@@ -207,7 +210,11 @@ func TestResilientAgentExecutor_Timeout(t *testing.T) {
 		Instruction: "test instruction",
 	}
 
-	_, err := executor.Execute(context.Background(), agent, input)
+	// Use a context with timeout to ensure the test doesn't hang
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	_, err := executor.Execute(ctx, agent, input)
 	if err == nil {
 		t.Fatal("Expected timeout error, got success")
 	}
@@ -222,7 +229,9 @@ func TestResilientAgentExecutor_CircuitBreaker(t *testing.T) {
 	config := DefaultResilientAgentConfig()
 	config.MetricsEnabled = false
 	config.LoggingEnabled = false
-	config.BackoffConfig.MaxRetries = 0
+	// MaxRetries = 0 means infinite retries, use 1 for minimal retry attempts
+	config.BackoffConfig.MaxRetries = 1
+	config.BackoffConfig.InitialDelay = 1 * time.Millisecond
 	config.CircuitBreakerConfig = resilience.CircuitBreakerConfig{
 		Name:             "test-cb",
 		FailureThreshold: 3,
@@ -238,8 +247,11 @@ func TestResilientAgentExecutor_CircuitBreaker(t *testing.T) {
 	}
 
 	// Trip the circuit breaker with failures
+	// Use a context with timeout for each call to prevent hangs
 	for i := 0; i < 5; i++ {
-		executor.Execute(context.Background(), agent, input)
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		executor.Execute(ctx, agent, input)
+		cancel()
 	}
 
 	// Check circuit breaker state

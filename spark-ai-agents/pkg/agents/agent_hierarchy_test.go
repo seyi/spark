@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/tools"
 )
 
 // TestAgentHierarchyBasics tests basic parent-child relationships
@@ -224,7 +222,7 @@ func TestAgentNavigation(t *testing.T) {
 			}),
 		})
 
-		parent := agent.NewAgent(agent.AgentConfig{
+		_ = agent.NewAgent(agent.AgentConfig{
 			Name:      "parent",
 			SubAgents: []agent.Agent{child},
 			Executor: agent.ExecutorFunc(func(ctx context.Context, ag agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
@@ -389,7 +387,7 @@ func TestAgentAsTool(t *testing.T) {
 		// Note: This assumes ToolRegistry has a way to count tools
 		// If not available, we can test by trying to get each tool
 
-		tool1, err := registry.GetTool("call_agent1")
+		tool1, err := registry.Get("call_agent1")
 		if err != nil {
 			t.Error("agent1 tool not found in registry")
 		}
@@ -397,7 +395,7 @@ func TestAgentAsTool(t *testing.T) {
 			t.Error("agent1 tool is nil")
 		}
 
-		tool2, err := registry.GetTool("call_agent2")
+		tool2, err := registry.Get("call_agent2")
 		if err != nil {
 			t.Error("agent2 tool not found in registry")
 		}
@@ -405,7 +403,7 @@ func TestAgentAsTool(t *testing.T) {
 			t.Error("agent2 tool is nil")
 		}
 
-		transferTool, err := registry.GetTool("transfer_to_agent")
+		transferTool, err := registry.Get("transfer_to_agent")
 		if err != nil {
 			t.Error("transfer_to_agent tool not found in registry")
 		}

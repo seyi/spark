@@ -105,6 +105,14 @@ type AgentExecutor interface {
 	Execute(ctx context.Context, agent Agent, input *AgentInput) (*AgentOutput, error)
 }
 
+// ExecutorFunc is a function adapter that implements AgentExecutor
+type ExecutorFunc func(ctx context.Context, agent Agent, input *AgentInput) (*AgentOutput, error)
+
+// Execute implements AgentExecutor
+func (f ExecutorFunc) Execute(ctx context.Context, agent Agent, input *AgentInput) (*AgentOutput, error) {
+	return f(ctx, agent, input)
+}
+
 // Tool represents a capability that an agent can use
 type Tool struct {
 	Name        string

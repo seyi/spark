@@ -34,14 +34,13 @@ type mockExecutor struct {
 	delay  time.Duration
 }
 
-func (e *mockExecutor) Execute(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+func (e *mockExecutor) Execute(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 	if e.delay > 0 {
 		time.Sleep(e.delay)
 	}
 
 	return &agent.AgentOutput{
-		Result:    e.result,
-		Timestamp: time.Now(),
+		Result: e.result,
 	}, nil
 }
 
@@ -382,16 +381,14 @@ func TestParallelAgent(t *testing.T) {
 func TestLoopAgent(t *testing.T) {
 	t.Run("Until Condition", func(t *testing.T) {
 		iteration := 0
-		executor := &mockExecutor{}
 
 		// Update result based on iteration
 		innerAgent := agent.NewAgent(agent.AgentConfig{
 			Name: "counter",
-			Executor: agent.ExecutorFunc(func(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+			Executor: agent.ExecutorFunc(func(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 				iteration++
 				return &agent.AgentOutput{
-					Result:    iteration,
-					Timestamp: time.Now(),
+					Result: iteration,
 					Metadata: map[string]interface{}{
 						"count": iteration,
 					},
@@ -462,11 +459,10 @@ func TestLoopAgent(t *testing.T) {
 		count := 0
 		innerAgent := agent.NewAgent(agent.AgentConfig{
 			Name: "incrementer",
-			Executor: agent.ExecutorFunc(func(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+			Executor: agent.ExecutorFunc(func(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 				count++
 				return &agent.AgentOutput{
-					Result:    fmt.Sprintf("Result %d", count),
-					Timestamp: time.Now(),
+					Result: fmt.Sprintf("Result %d", count),
 				}, nil
 			}),
 		})
@@ -559,7 +555,7 @@ func TestConditionHelpers(t *testing.T) {
 
 		output1 := &agent.AgentOutput{Result: 1.0}
 		output2 := &agent.AgentOutput{Result: 1.005}
-		output3 := &agent.AgentOutput{Result: 1.006}
+		_ = &agent.AgentOutput{Result: 1.006} // output3 for future use
 
 		// First iteration always continues
 		if !condition(output1, 1) {

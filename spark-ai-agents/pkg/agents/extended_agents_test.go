@@ -3,11 +3,9 @@ package agents
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/a2a"
 	"github.com/apache/spark/spark-ai-agents/pkg/agent"
 )
 
@@ -67,11 +65,10 @@ func TestMapReduceAgent(t *testing.T) {
 		// Create mapper that doubles numbers
 		mapper := agent.NewAgent(agent.AgentConfig{
 			Name: "doubler",
-			Executor: agent.ExecutorFunc(func(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+			Executor: agent.ExecutorFunc(func(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 				num := input.Context["number"].(int)
 				return &agent.AgentOutput{
-					Result:    num * 2,
-					Timestamp: time.Now(),
+					Result: num * 2,
 				}, nil
 			}),
 		})
@@ -79,15 +76,14 @@ func TestMapReduceAgent(t *testing.T) {
 		// Create reducer that sums results
 		reducer := agent.NewAgent(agent.AgentConfig{
 			Name: "summer",
-			Executor: agent.ExecutorFunc(func(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+			Executor: agent.ExecutorFunc(func(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 				mapResults := input.Context["map_results"].([]*agent.AgentOutput)
 				sum := 0
 				for _, result := range mapResults {
 					sum += result.Result.(int)
 				}
 				return &agent.AgentOutput{
-					Result:    sum,
-					Timestamp: time.Now(),
+					Result: sum,
 				}, nil
 			}),
 		})
@@ -200,24 +196,24 @@ func TestMapReduceAgent(t *testing.T) {
 		// Mapper that fails on first 2 calls
 		mapper := agent.NewAgent(agent.AgentConfig{
 			Name: "flaky-mapper",
-			Executor: agent.ExecutorFunc(func(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+			Executor: agent.ExecutorFunc(func(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 				failCount++
 				if failCount <= 2 {
 					return nil, fmt.Errorf("mapper failed")
 				}
 				return &agent.AgentOutput{
 					Result:    "success",
-					Timestamp: time.Now(),
+					
 				}, nil
 			}),
 		})
 
 		reducer := agent.NewAgent(agent.AgentConfig{
 			Name: "reducer",
-			Executor: agent.ExecutorFunc(func(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+			Executor: agent.ExecutorFunc(func(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 				return &agent.AgentOutput{
 					Result:    "reduced",
-					Timestamp: time.Now(),
+					
 				}, nil
 			}),
 		})
@@ -490,31 +486,31 @@ func TestFanOutAgent(t *testing.T) {
 		workers := []agent.Agent{
 			agent.NewAgent(agent.AgentConfig{
 				Name: "worker1",
-				Executor: agent.ExecutorFunc(func(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+				Executor: agent.ExecutorFunc(func(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 					task := input.Context["task"].(string)
 					return &agent.AgentOutput{
 						Result:    fmt.Sprintf("worker1:%s", task),
-						Timestamp: time.Now(),
+						
 					}, nil
 				}),
 			}),
 			agent.NewAgent(agent.AgentConfig{
 				Name: "worker2",
-				Executor: agent.ExecutorFunc(func(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+				Executor: agent.ExecutorFunc(func(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 					task := input.Context["task"].(string)
 					return &agent.AgentOutput{
 						Result:    fmt.Sprintf("worker2:%s", task),
-						Timestamp: time.Now(),
+						
 					}, nil
 				}),
 			}),
 			agent.NewAgent(agent.AgentConfig{
 				Name: "worker3",
-				Executor: agent.ExecutorFunc(func(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+				Executor: agent.ExecutorFunc(func(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 					task := input.Context["task"].(string)
 					return &agent.AgentOutput{
 						Result:    fmt.Sprintf("worker3:%s", task),
-						Timestamp: time.Now(),
+						
 					}, nil
 				}),
 			}),
@@ -626,7 +622,7 @@ func TestRemoteAgentPool(t *testing.T) {
 		})
 		agent1.BaseAgent = agent.NewAgent(agent.AgentConfig{
 			Name: "failing",
-			Executor: agent.ExecutorFunc(func(ctx context.Context, input *agent.AgentInput) (*agent.AgentOutput, error) {
+			Executor: agent.ExecutorFunc(func(ctx context.Context, _ agent.Agent, input *agent.AgentInput) (*agent.AgentOutput, error) {
 				return nil, fmt.Errorf("agent failed")
 			}),
 		})

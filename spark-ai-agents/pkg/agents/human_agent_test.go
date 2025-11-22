@@ -735,7 +735,6 @@ func TestDistributedMultiStageApproval(t *testing.T) {
 	approvalWorkflow := NewSequentialAgent(SequentialAgentConfig{
 		Name:      "BudgetApprovalWorkflow",
 		SubAgents: []agent.Agent{managerApproval, directorApproval, cfoApproval},
-		EventBus:  eventBus,
 	})
 
 	// Track approval stages

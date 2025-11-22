@@ -120,13 +120,68 @@ func (s *InMemoryArtifactStore) Save(ctx context.Context, artifact *Artifact) er
 		artifact.Version = existing.Version + 1
 		artifact.ParentID = existing.ID
 
-		// Store version history
-		s.versions[artifact.ID] = append(s.versions[artifact.ID], existing)
+		// Store version history (make a deep copy to preserve the original version)
+		contentCopy := make([]byte, len(existing.Content))
+		copy(contentCopy, existing.Content)
+
+		var tagsCopy []string
+		if existing.Tags != nil {
+			tagsCopy = make([]string, len(existing.Tags))
+			copy(tagsCopy, existing.Tags)
+		}
+
+		existingCopy := &Artifact{
+			ID:          existing.ID,
+			Type:        existing.Type,
+			Content:     contentCopy,
+			ContentType: existing.ContentType,
+			Checksum:    existing.Checksum,
+			Size:        existing.Size,
+			Version:     existing.Version,
+			ParentID:    existing.ParentID,
+			AgentID:     existing.AgentID,
+			SessionID:   existing.SessionID,
+			TaskID:      existing.TaskID,
+			Tags:        tagsCopy,
+			Metadata:    existing.Metadata,
+			CreatedAt:   existing.CreatedAt,
+			UpdatedAt:   existing.UpdatedAt,
+			ExpiresAt:   existing.ExpiresAt,
+		}
+		s.versions[artifact.ID] = append(s.versions[artifact.ID], existingCopy)
 	} else {
 		artifact.Version = 1
 	}
 
-	s.artifacts[artifact.ID] = artifact
+	// Store a copy of the artifact to prevent external modifications
+	contentCopy := make([]byte, len(artifact.Content))
+	copy(contentCopy, artifact.Content)
+
+	var tagsCopy []string
+	if artifact.Tags != nil {
+		tagsCopy = make([]string, len(artifact.Tags))
+		copy(tagsCopy, artifact.Tags)
+	}
+
+	storedArtifact := &Artifact{
+		ID:          artifact.ID,
+		Type:        artifact.Type,
+		Content:     contentCopy,
+		ContentType: artifact.ContentType,
+		Checksum:    artifact.Checksum,
+		Size:        artifact.Size,
+		Version:     artifact.Version,
+		ParentID:    artifact.ParentID,
+		AgentID:     artifact.AgentID,
+		SessionID:   artifact.SessionID,
+		TaskID:      artifact.TaskID,
+		Tags:        tagsCopy,
+		Metadata:    artifact.Metadata,
+		CreatedAt:   artifact.CreatedAt,
+		UpdatedAt:   artifact.UpdatedAt,
+		ExpiresAt:   artifact.ExpiresAt,
+	}
+	s.artifacts[artifact.ID] = storedArtifact
 	return nil
 }
 

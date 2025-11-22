@@ -9,7 +9,6 @@ import (
 
 	"github.com/apache/spark/spark-ai-agents/pkg/agent"
 	"github.com/apache/spark/spark-ai-agents/pkg/events"
-	"github.com/apache/spark/spark-ai-agents/pkg/model"
 	"github.com/apache/spark/spark-ai-agents/pkg/tools"
 )
 
@@ -822,7 +821,7 @@ func TestLLMAgentInvalidTargetAgent(t *testing.T) {
 		response: `<tool_use name="transfer_to_agent">{"agent_name": "NonExistentAgent", "reason": "Invalid transfer"}</tool_use>`,
 	}
 
-	agent := NewLlmAgentWithAutoFlow(LlmAgentWithAutoFlowConfig{
+	llmAgent := NewLlmAgentWithAutoFlow(LlmAgentWithAutoFlowConfig{
 		Name:                      "TestAgent",
 		Description:               "Test agent",
 		AllowTransfer:             true,
@@ -834,7 +833,7 @@ func TestLLMAgentInvalidTargetAgent(t *testing.T) {
 	ctx := context.Background()
 	input := &agent.AgentInput{Instruction: "Test"}
 
-	_, err := agent.GetAutoFlow().Execute(ctx, agent, input)
+	_, err := llmAgent.GetAutoFlow().Execute(ctx, llmAgent, input)
 	if err == nil {
 		t.Error("Expected error for non-existent agent")
 	}
@@ -880,7 +879,7 @@ func TestLLMAgentContextSerialization(t *testing.T) {
 	ctx := context.Background()
 	input := &agent.AgentInput{Instruction: "Test"}
 
-	output, err := coordinator.GetAutoFlow().Execute(ctx, coordinator, input)
+	_, err := coordinator.GetAutoFlow().Execute(ctx, coordinator, input)
 	if err != nil {
 		t.Fatalf("Execution failed: %v", err)
 	}
