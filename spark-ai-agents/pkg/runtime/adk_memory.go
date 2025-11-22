@@ -417,3 +417,206 @@ func (m *InMemoryADKMemoryService) ClearAll() {
 	defer m.mu.Unlock()
 	m.memories = make(map[string][]MemoryEntry)
 }
+
+// ============================================================================
+// Google ADK Go Compatible Memory Service
+// ============================================================================
+//
+// This section provides an exact match to Google's ADK Go memory.Service interface
+
+// MemoryServiceCompat matches Google ADK Go's memory.Service interface exactly
+type MemoryServiceCompat interface {
+	// AddSession adds a session to the memory service (can be called multiple times)
+	AddSession(ctx context.Context, s SessionInterface) error
+	// Search returns memory entries relevant to the given query
+	Search(ctx context.Context, req *MemorySearchRequest) (*SearchResponse, error)
+}
+
+// SessionInterface matches Google ADK Go's session.Session interface
+type SessionInterface interface {
+	ID() string
+	AppName() string
+	UserID() string
+	Events() EventsInterface
+}
+
+// EventsInterface matches Google ADK Go's session.Events interface
+type EventsInterface interface {
+	Len() int
+	At(i int) *Event
+}
+
+// MemorySearchRequest matches Google ADK Go's memory.SearchRequest
+type MemorySearchRequest struct {
+	Query   string `json:"query"`
+	UserID  string `json:"user_id"`
+	AppName string `json:"app_name"`
+}
+
+// InMemoryServiceCompat is a Google ADK Go compatible in-memory implementation
+type InMemoryServiceCompat struct {
+	mu    sync.RWMutex
+	store map[memoryKey]map[string][]memoryValue // key -> sessionID -> values
+}
+
+type memoryKey struct {
+	appName, userID string
+}
+
+type memoryValue struct {
+	content   interface{}
+	author    string
+	timestamp time.Time
+	words     map[string]struct{} // precomputed words for keyword matching
+}
+
+// NewInMemoryServiceCompat creates a new Google ADK Go compatible memory service
+func NewInMemoryServiceCompat() *InMemoryServiceCompat {
+	return &InMemoryServiceCompat{
+		store: make(map[memoryKey]map[string][]memoryValue),
+	}
+}
+
+// AddSession adds a session to memory (Google ADK Go compatible)
+func (s *InMemoryServiceCompat) AddSession(ctx context.Context, sess SessionInterface) error {
+	if sess == nil {
+		return nil
+	}
+
+	var values []memoryValue
+	events := sess.Events()
+
+	for i := 0; i < events.Len(); i++ {
+		event := events.At(i)
+		if event == nil || event.Content == nil {
+			continue
+		}
+
+		// Extract words for keyword matching
+		words := make(map[string]struct{})
+		if text, ok := event.Content.(string); ok {
+			extractWordsInto(text, words)
+		}
+
+		if len(words) == 0 {
+			continue
+		}
+
+		values = append(values, memoryValue{
+			content:   event.Content,
+			author:    event.Author,
+			timestamp: event.Timestamp,
+			words:     words,
+		})
+	}
+
+	key := memoryKey{
+		appName: sess.AppName(),
+		userID:  sess.UserID(),
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sessMap, ok := s.store[key]
+	if !ok {
+		sessMap = make(map[string][]memoryValue)
+		s.store[key] = sessMap
+	}
+
+	sessMap[sess.ID()] = values
+	return nil
+}
+
+// Search returns memory entries matching the query (Google ADK Go compatible)
+func (s *InMemoryServiceCompat) Search(ctx context.Context, req *MemorySearchRequest) (*SearchResponse, error) {
+	if req == nil || req.Query == "" {
+		return &SearchResponse{Memories: []MemoryEntry{}}, nil
+	}
+
+	queryWords := make(map[string]struct{})
+	extractWordsInto(req.Query, queryWords)
+
+	key := memoryKey{
+		appName: req.AppName,
+		userID:  req.UserID,
+	}
+
+	s.mu.RLock()
+	sessMap, ok := s.store[key]
+	s.mu.RUnlock()
+
+	if !ok {
+		return &SearchResponse{Memories: []MemoryEntry{}}, nil
+	}
+
+	var results []MemoryEntry
+
+	for _, events := range sessMap {
+		for _, e := range events {
+			if mapsIntersect(e.words, queryWords) {
+				results = append(results, MemoryEntry{
+					Content:   e.content,
+					Author:    e.author,
+					Timestamp: e.timestamp,
+				})
+			}
+		}
+	}
+
+	return &SearchResponse{Memories: results}, nil
+}
+
+// extractWordsInto extracts lowercase words from text into the provided map
+func extractWordsInto(text string, words map[string]struct{}) {
+	for _, word := range strings.Fields(text) {
+		if word != "" {
+			words[strings.ToLower(word)] = struct{}{}
+		}
+	}
+}
+
+// mapsIntersect checks if two maps have any common keys
+func mapsIntersect(m1, m2 map[string]struct{}) bool {
+	if len(m1) == 0 || len(m2) == 0 {
+		return false
+	}
+
+	// Iterate over the smaller map for efficiency
+	if len(m1) > len(m2) {
+		m1, m2 = m2, m1
+	}
+
+	for k := range m1 {
+		if _, ok := m2[k]; ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// SessionAdapter adapts our Session type to SessionInterface
+type SessionAdapter struct {
+	*Session
+}
+
+func (s *SessionAdapter) ID() string      { return s.Session.ID }
+func (s *SessionAdapter) AppName() string { return "" } // TODO: Add AppName to Session
+func (s *SessionAdapter) UserID() string  { return s.Session.UserID }
+func (s *SessionAdapter) Events() EventsInterface {
+	return &EventsAdapter{events: s.Session.EventHistory}
+}
+
+// EventsAdapter adapts []Event to EventsInterface
+type EventsAdapter struct {
+	events []Event
+}
+
+func (e *EventsAdapter) Len() int          { return len(e.events) }
+func (e *EventsAdapter) At(i int) *Event   { return &e.events[i] }
+
+// WrapSession wraps our Session type for use with MemoryServiceCompat
+func WrapSession(s *Session) SessionInterface {
+	return &SessionAdapter{Session: s}
+}

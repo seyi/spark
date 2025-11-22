@@ -342,3 +342,176 @@ func (m *mockMemoryBackend) Store(ctx context.Context, userID string, memory *Me
 func (m *mockMemoryBackend) Query(ctx context.Context, userID string, query string) ([]*Memory, error) {
 	return m.memories[userID], nil
 }
+
+// ============================================================================
+// Tests for Google ADK Go Compatible Memory Service
+// ============================================================================
+
+func TestInMemoryServiceCompat_AddSessionAndSearch(t *testing.T) {
+	service := NewInMemoryServiceCompat()
+	ctx := context.Background()
+
+	// Create a test session
+	session := &testSessionCompat{
+		id:      "session-1",
+		appName: "test-app",
+		userID:  "user-1",
+		events: []Event{
+			{ID: "e1", Content: "The quick brown fox", Author: "user-1", Timestamp: time.Now().Add(-time.Minute)},
+			{ID: "e2", Content: "jumps over the lazy dog", Author: "agent-1", Timestamp: time.Now()},
+		},
+	}
+
+	// Add session
+	err := service.AddSession(ctx, session)
+	if err != nil {
+		t.Fatalf("AddSession failed: %v", err)
+	}
+
+	// Search for "fox"
+	resp, err := service.Search(ctx, &MemorySearchRequest{
+		Query:   "fox",
+		UserID:  "user-1",
+		AppName: "test-app",
+	})
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+
+	if len(resp.Memories) != 1 {
+		t.Errorf("Expected 1 result, got %d", len(resp.Memories))
+	}
+}
+
+func TestInMemoryServiceCompat_WordBasedMatching(t *testing.T) {
+	service := NewInMemoryServiceCompat()
+	ctx := context.Background()
+
+	session := &testSessionCompat{
+		id:      "session-1",
+		appName: "app1",
+		userID:  "user1",
+		events: []Event{
+			{ID: "e1", Content: "The Quick brown fox", Author: "user1", Timestamp: time.Now()},
+			{ID: "e2", Content: "hello world", Author: "bot", Timestamp: time.Now()},
+		},
+	}
+
+	_ = service.AddSession(ctx, session)
+
+	tests := []struct {
+		query    string
+		expected int
+	}{
+		{"quick hello", 2}, // Matches both (word-based OR)
+		{"fox", 1},         // Matches first
+		{"world", 1},       // Matches second
+		{"elephant", 0},    // No match
+		{"", 0},            // Empty query
+	}
+
+	for _, tc := range tests {
+		resp, err := service.Search(ctx, &MemorySearchRequest{
+			Query:   tc.query,
+			UserID:  "user1",
+			AppName: "app1",
+		})
+		if err != nil {
+			t.Fatalf("Search(%q) failed: %v", tc.query, err)
+		}
+
+		if len(resp.Memories) != tc.expected {
+			t.Errorf("Search(%q): expected %d results, got %d", tc.query, tc.expected, len(resp.Memories))
+		}
+	}
+}
+
+func TestInMemoryServiceCompat_UserIsolation(t *testing.T) {
+	service := NewInMemoryServiceCompat()
+	ctx := context.Background()
+
+	// Add sessions for two users
+	session1 := &testSessionCompat{
+		id:      "session-1",
+		appName: "app1",
+		userID:  "user1",
+		events: []Event{
+			{ID: "e1", Content: "Content for user1", Author: "user1", Timestamp: time.Now()},
+		},
+	}
+	session2 := &testSessionCompat{
+		id:      "session-2",
+		appName: "app1",
+		userID:  "user2",
+		events: []Event{
+			{ID: "e2", Content: "Content for user2", Author: "user2", Timestamp: time.Now()},
+		},
+	}
+
+	_ = service.AddSession(ctx, session1)
+	_ = service.AddSession(ctx, session2)
+
+	// User1 search should only find user1's content
+	resp1, _ := service.Search(ctx, &MemorySearchRequest{
+		Query:   "Content",
+		UserID:  "user1",
+		AppName: "app1",
+	})
+	if len(resp1.Memories) != 1 {
+		t.Errorf("Expected 1 result for user1, got %d", len(resp1.Memories))
+	}
+
+	// Different app should find nothing
+	resp3, _ := service.Search(ctx, &MemorySearchRequest{
+		Query:   "Content",
+		UserID:  "user1",
+		AppName: "other_app",
+	})
+	if len(resp3.Memories) != 0 {
+		t.Errorf("Expected 0 results for other_app, got %d", len(resp3.Memories))
+	}
+}
+
+func TestWrapSession(t *testing.T) {
+	session := &Session{
+		ID:     "session-1",
+		UserID: "user-1",
+		EventHistory: []Event{
+			{ID: "e1", Content: "Test content", Author: "user", Timestamp: time.Now()},
+		},
+	}
+
+	wrapped := WrapSession(session)
+
+	if wrapped.ID() != "session-1" {
+		t.Errorf("ID() = %s, want session-1", wrapped.ID())
+	}
+	if wrapped.UserID() != "user-1" {
+		t.Errorf("UserID() = %s, want user-1", wrapped.UserID())
+	}
+	if wrapped.Events().Len() != 1 {
+		t.Errorf("Events().Len() = %d, want 1", wrapped.Events().Len())
+	}
+}
+
+// testSessionCompat implements SessionInterface for testing
+type testSessionCompat struct {
+	id      string
+	appName string
+	userID  string
+	events  []Event
+}
+
+func (s *testSessionCompat) ID() string      { return s.id }
+func (s *testSessionCompat) AppName() string { return s.appName }
+func (s *testSessionCompat) UserID() string  { return s.userID }
+func (s *testSessionCompat) Events() EventsInterface {
+	return &testEventsCompat{events: s.events}
+}
+
+type testEventsCompat struct {
+	events []Event
+}
+
+func (e *testEventsCompat) Len() int        { return len(e.events) }
+func (e *testEventsCompat) At(i int) *Event { return &e.events[i] }
