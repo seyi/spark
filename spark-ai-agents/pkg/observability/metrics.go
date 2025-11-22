@@ -19,6 +19,7 @@ type Metrics struct {
 	AgentExecutionTime   *prometheus.HistogramVec
 	AgentExecutionErrors *prometheus.CounterVec
 	AgentActiveRequests  *prometheus.GaugeVec
+	AgentRetries         *prometheus.CounterVec
 
 	// LLM provider metrics
 	LLMRequests          *prometheus.CounterVec
@@ -102,6 +103,15 @@ func NewMetrics(namespace string) *Metrics {
 			Namespace: namespace,
 			Name:      "active_requests",
 			Help:      "Number of active agent requests",
+		},
+		[]string{"agent_name"},
+	)
+
+	m.AgentRetries = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "retries_total",
+			Help:      "Total number of agent execution retries",
 		},
 		[]string{"agent_name"},
 	)
@@ -285,9 +295,19 @@ func (m *Metrics) RecordAgentExecution(agentName, agentType, status string, dura
 	m.AgentExecutionTime.WithLabelValues(agentName, agentType).Observe(duration.Seconds())
 }
 
-// RecordAgentError records an agent execution error
-func (m *Metrics) RecordAgentError(agentName, agentType, errorType string) {
+// RecordAgentError records an agent execution error (simple version)
+func (m *Metrics) RecordAgentError(agentName, errorType string) {
+	m.AgentExecutionErrors.WithLabelValues(agentName, "resilient", errorType).Inc()
+}
+
+// RecordAgentErrorTyped records an agent execution error with type
+func (m *Metrics) RecordAgentErrorTyped(agentName, agentType, errorType string) {
 	m.AgentExecutionErrors.WithLabelValues(agentName, agentType, errorType).Inc()
+}
+
+// RecordAgentRetry records an agent retry attempt
+func (m *Metrics) RecordAgentRetry(agentName string) {
+	m.AgentRetries.WithLabelValues(agentName).Inc()
 }
 
 // RecordLLMRequest records an LLM API request
@@ -399,7 +419,7 @@ func (t *ExecutionTimer) Finish(status string) time.Duration {
 func (t *ExecutionTimer) FinishWithError(errorType string) time.Duration {
 	duration := time.Since(t.start)
 	t.metrics.RecordAgentExecution(t.agentName, t.agentType, "error", duration)
-	t.metrics.RecordAgentError(t.agentName, t.agentType, errorType)
+	t.metrics.RecordAgentErrorTyped(t.agentName, t.agentType, errorType)
 	t.metrics.AgentActiveRequests.WithLabelValues(t.agentName).Dec()
 	return duration
 }

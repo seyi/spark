@@ -5,11 +5,21 @@ package state
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/apache/spark/spark-ai-agents/pkg/agent"
+)
+
+// Common errors
+var (
+	ErrNotFound       = errors.New("state not found")
+	ErrAlreadyExists  = errors.New("state already exists")
+	ErrInvalidState   = errors.New("invalid state")
+	ErrBackendClosed  = errors.New("backend is closed")
+	ErrVersionConflict = errors.New("version conflict")
 )
 
 // CheckpointManager manages agent state checkpointing for fault tolerance
@@ -330,4 +340,89 @@ func (sm *StateManager) CheckpointManager() CheckpointManager {
 
 func (sm *StateManager) LineageTracker() *LineageTracker {
 	return sm.lineageTracker
+}
+
+// Additional types for distributed state backends
+
+// CheckpointMeta holds checkpoint metadata for listing
+type CheckpointMeta struct {
+	ID        string    `json:"id"`
+	AgentID   string    `json:"agent_id"`
+	SessionID string    `json:"session_id"`
+	Timestamp time.Time `json:"timestamp"`
+	Version   int64     `json:"version"`
+}
+
+// SessionState holds session state data
+type SessionState struct {
+	ID        string                 `json:"id"`
+	AgentID   string                 `json:"agent_id"`
+	State     map[string]interface{} `json:"state"`
+	Metadata  map[string]string      `json:"metadata"`
+	CreatedAt time.Time              `json:"created_at"`
+	UpdatedAt time.Time              `json:"updated_at"`
+	Version   int64                  `json:"version"`
+}
+
+// HistoryEntry holds an execution history entry
+type HistoryEntry struct {
+	ID        string                 `json:"id"`
+	SessionID string                 `json:"session_id"`
+	Action    string                 `json:"action"`
+	Input     interface{}            `json:"input,omitempty"`
+	Output    interface{}            `json:"output,omitempty"`
+	Metadata  map[string]string      `json:"metadata,omitempty"`
+	Timestamp time.Time              `json:"timestamp"`
+}
+
+// StateBackend is the interface for distributed state storage
+type StateBackend interface {
+	// Get retrieves a value by key
+	Get(ctx context.Context, key string) ([]byte, error)
+	// Set stores a value with optional TTL
+	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
+	// Delete removes a value
+	Delete(ctx context.Context, key string) error
+	// List returns keys matching a pattern
+	List(ctx context.Context, pattern string) ([]string, error)
+	// Close closes the backend connection
+	Close() error
+}
+
+// CheckpointBackend is the interface for checkpoint storage
+type CheckpointBackend interface {
+	// Save stores a checkpoint
+	Save(ctx context.Context, checkpoint *Checkpoint) error
+	// Load retrieves a checkpoint
+	Load(ctx context.Context, id string) (*Checkpoint, error)
+	// Delete removes a checkpoint
+	Delete(ctx context.Context, id string) error
+	// List returns checkpoints for an agent
+	ListByAgent(ctx context.Context, agentID string, limit int) ([]*CheckpointMeta, error)
+	// GetLatest returns the latest checkpoint for an agent
+	GetLatest(ctx context.Context, agentID string) (*Checkpoint, error)
+}
+
+// SessionBackend is the interface for session state storage
+type SessionBackend interface {
+	// Create creates a new session
+	Create(ctx context.Context, session *SessionState) error
+	// Get retrieves a session
+	Get(ctx context.Context, id string) (*SessionState, error)
+	// Update updates a session (with optimistic locking)
+	Update(ctx context.Context, session *SessionState) error
+	// Delete removes a session
+	Delete(ctx context.Context, id string) error
+	// List returns sessions for an agent
+	ListByAgent(ctx context.Context, agentID string) ([]*SessionState, error)
+}
+
+// HistoryBackend is the interface for execution history storage
+type HistoryBackend interface {
+	// Append adds an entry to history
+	Append(ctx context.Context, entry *HistoryEntry) error
+	// List returns history entries for a session
+	List(ctx context.Context, sessionID string, limit int) ([]*HistoryEntry, error)
+	// Clear removes all history for a session
+	Clear(ctx context.Context, sessionID string) error
 }
