@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/events"
-	"github.com/apache/spark/spark-ai-agents/pkg/model"
-	"github.com/apache/spark/spark-ai-agents/pkg/tools"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/events"
+	"github.com/seyi/dagens/pkg/model"
+	"github.com/seyi/dagens/pkg/tools"
 )
 
 // LlmAgentWithAutoFlow provides LLM-based reasoning with agent transfer support

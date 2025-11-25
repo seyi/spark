@@ -5,7 +5,7 @@ Native PySpark integration for distributed AI agent execution.
 ## Installation
 
 ```bash
-pip install spark-ai-agents
+pip install dagens-ai-agents
 ```
 
 ## Quick Start
@@ -42,4 +42,4 @@ result.show()
 
 ## Documentation
 
-See the [main documentation](../../docs/PHASE4_SPARK_INTEGRATION_DESIGN.md) for detailed usage.
+See the [main documentation](../docs/PHASE4_SPARK_INTEGRATION_DESIGN.md) for detailed usage.

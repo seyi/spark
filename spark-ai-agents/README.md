@@ -1,10 +1,10 @@
-# Spark AI Agents
+# Dagens AI Agents
 
 A distributed AI agent execution framework inspired by Apache Spark's distributed computing architecture. This framework brings Spark's powerful concepts—DAG scheduling, fault tolerance, locality-aware scheduling, and resilient execution—to AI agent orchestration.
 
 ## Overview
 
-Spark AI Agents enables you to build and execute distributed AI agent workflows that:
+Dagens AI Agents enables you to build and execute distributed AI agent workflows that:
 
 - **Scale horizontally** across multiple executor workers
 - **Handle failures gracefully** through lineage tracking and checkpointing
@@ -85,8 +85,8 @@ pip install spark-agents
 
 ```bash
 # Clone repository
-git clone https://github.com/apache/spark
-cd spark/spark-ai-agents
+git clone https://github.com/seyi/dagens
+cd dagens
 
 # Build Go core
 go build -buildmode=c-shared -o python/bindings/libsparkagents.so python/bindings/spark_agents.go
@@ -219,7 +219,7 @@ Scheduler uses delay scheduling to wait for better locality.
 
 ## Spark Concepts Mapping
 
-| Spark Concept | Spark AI Agents | Purpose |
+| Spark Concept | Dagens AI Agents | Purpose |
 |---------------|-----------------|---------|
 | RDD | Agent | Basic unit of distributed computation |
 | DAGScheduler | Agent Orchestrator | High-level workflow coordination |
@@ -346,7 +346,7 @@ pytest python/tests/
 
 ## Comparison with Other Frameworks
 
-| Feature | Spark AI Agents | ADK Python | Zen MCP |
+| Feature | Dagens AI Agents | ADK Python | Zen MCP |
 |---------|----------------|------------|---------|
 | Distributed Execution | ✅ Yes (Spark-inspired) | ❌ No | ❌ No |
 | Fault Tolerance | ✅ Lineage + Checkpointing | ❌ Limited | ❌ Limited |
@@ -392,14 +392,14 @@ This framework is inspired by:
 
 ## Citation
 
-If you use Spark AI Agents in your research, please cite:
+If you use Dagens AI Agents in your research, please cite:
 
 ```bibtex
 @software{spark_ai_agents,
-  title = {Spark AI Agents: Distributed AI Agent Framework},
+  title = {Dagens AI Agents: Distributed AI Agent Framework},
   author = {Apache Spark Community},
   year = {2024},
-  url = {https://github.com/apache/spark/spark-ai-agents}
+  url = {https://github.com/seyi/dagens}
 }
 ```
 

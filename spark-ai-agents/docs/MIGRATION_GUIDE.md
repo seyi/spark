@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide documents how to migrate the spark-ai-agents project from `github.com/apache/spark/spark-ai-agents` to an independent repository.
+This guide documents how to migrate the spark-ai-agents project from `github.com/seyi/dagens` to an independent repository.
 
 ## Pre-Migration Assessment
 
@@ -21,7 +21,7 @@ This guide documents how to migrate the spark-ai-agents project from `github.com
 - Standard Go/Python packages only
 
 **Breaking Changes Required:**
-1. Module import path: `github.com/apache/spark/spark-ai-agents` → `github.com/NEW_ORG/spark-ai-agents`
+1. Module import path: `github.com/seyi/dagens` → `github.com/seyi/spark-ai-agents`
 2. Repository URL in documentation
 3. Python package URL in `setup.py`
 
@@ -34,9 +34,9 @@ Save this as `migrate.sh`:
 set -e
 
 # Configuration
-OLD_PATH="github.com/apache/spark/spark-ai-agents"
-NEW_ORG="${1:-your-org}"  # Pass new org as first argument
-NEW_PATH="github.com/${NEW_ORG}/spark-ai-agents"
+OLD_PATH="github.com/seyi/dagens"
+seyi="${1:-your-org}"  # Pass new org as first argument
+NEW_PATH="github.com/${seyi}/spark-ai-agents"
 
 echo "=========================================="
 echo "Spark AI Agents Migration Script"
@@ -61,7 +61,7 @@ sed -i "s|${OLD_PATH}|${NEW_PATH}|g" go.mod
 # Phase 2: Update Python package
 echo "Phase 2: Updating Python package..."
 sed -i "s|${OLD_PATH}|${NEW_PATH}|g" python/setup.py
-sed -i "s|apache/spark|${NEW_ORG}/spark-ai-agents|g" python/setup.py
+sed -i "s|seyi/dagens|${seyi}/spark-ai-agents|g" python/setup.py
 
 # Phase 3: Update documentation
 echo "Phase 3: Updating documentation..."
@@ -70,17 +70,17 @@ echo "Phase 3: Updating documentation..."
 sed -i 's|../../docs/|../docs/|g' python/README.md
 
 # Update clone instructions
-sed -i "s|git clone https://github.com/apache/spark|git clone https://github.com/${NEW_ORG}/spark-ai-agents|g" README.md
+sed -i "s|git clone https://github.com/seyi/dagens|git clone https://github.com/${seyi}/spark-ai-agents|g" README.md
 sed -i "s|cd spark/spark-ai-agents|cd spark-ai-agents|g" README.md
-sed -i "s|github.com/apache/spark/spark-ai-agents|${NEW_PATH}|g" README.md
+sed -i "s|github.com/seyi/dagens|${NEW_PATH}|g" README.md
 
 # Update GETTING_STARTED.md
-sed -i "s|git clone https://github.com/apache/spark|git clone https://github.com/${NEW_ORG}/spark-ai-agents|g" docs/GETTING_STARTED.md
+sed -i "s|git clone https://github.com/seyi/dagens|git clone https://github.com/${seyi}/spark-ai-agents|g" docs/GETTING_STARTED.md
 sed -i "s|cd spark/spark-ai-agents|cd spark-ai-agents|g" docs/GETTING_STARTED.md
-sed -i "s|github.com/apache/spark/spark-ai-agents|${NEW_PATH}|g" docs/GETTING_STARTED.md
+sed -i "s|github.com/seyi/dagens|${NEW_PATH}|g" docs/GETTING_STARTED.md
 
 # Update citation in README.md
-sed -i "s|url = {https://github.com/apache/spark/spark-ai-agents}|url = {https://github.com/${NEW_ORG}/spark-ai-agents}|g" README.md
+sed -i "s|url = {https://github.com/seyi/dagens}|url = {https://github.com/${seyi}/spark-ai-agents}|g" README.md
 
 # Phase 4: Clean up and test
 echo "Phase 4: Verifying changes..."
@@ -102,7 +102,7 @@ echo ""
 echo "Next steps:"
 echo "1. Review changes: git diff"
 echo "2. Commit: git add . && git commit -m 'Migrate to independent repository'"
-echo "3. Add new remote: git remote add origin https://github.com/${NEW_ORG}/spark-ai-agents"
+echo "3. Add new remote: git remote add origin https://github.com/${seyi}/spark-ai-agents"
 echo "4. Push: git push -u origin main"
 echo ""
 echo "Verification:"
@@ -119,7 +119,7 @@ If you prefer manual migration:
 
 ```bash
 # Clone the full Spark repo
-git clone https://github.com/apache/spark
+git clone https://github.com/seyi/dagens
 cd spark
 
 # Create a standalone branch with only spark-ai-agents history
@@ -137,21 +137,21 @@ git pull ../spark spark-ai-agents-standalone
 
 ```bash
 # Update go.mod
-sed -i 's|github.com/apache/spark/spark-ai-agents|github.com/NEW_ORG/spark-ai-agents|g' go.mod
+sed -i 's|github.com/seyi/dagens|github.com/seyi/spark-ai-agents|g' go.mod
 
 # Update all Go files
-find . -type f -name "*.go" -exec sed -i 's|github.com/apache/spark/spark-ai-agents|github.com/NEW_ORG/spark-ai-agents|g' {} \;
+find . -type f -name "*.go" -exec sed -i 's|github.com/seyi/dagens|github.com/seyi/spark-ai-agents|g' {} \;
 ```
 
 ### Step 3: Update Documentation
 
 ```bash
 # Update README
-sed -i 's|github.com/apache/spark|github.com/NEW_ORG/spark-ai-agents|g' README.md
+sed -i 's|github.com/seyi/dagens|github.com/seyi/spark-ai-agents|g' README.md
 sed -i 's|cd spark/spark-ai-agents|cd spark-ai-agents|g' README.md
 
 # Update Getting Started
-sed -i 's|github.com/apache/spark|github.com/NEW_ORG/spark-ai-agents|g' docs/GETTING_STARTED.md
+sed -i 's|github.com/seyi/dagens|github.com/seyi/spark-ai-agents|g' docs/GETTING_STARTED.md
 
 # Fix relative links
 sed -i 's|../../docs/|../docs/|g' python/README.md
@@ -161,7 +161,7 @@ sed -i 's|../../docs/|../docs/|g' python/README.md
 
 ```bash
 # Update setup.py
-sed -i 's|github.com/apache/spark/spark-ai-agents|github.com/NEW_ORG/spark-ai-agents|g' python/setup.py
+sed -i 's|github.com/seyi/dagens|github.com/seyi/spark-ai-agents|g' python/setup.py
 ```
 
 ### Step 5: Verify and Test
@@ -186,13 +186,13 @@ cd ..
 
 ```bash
 # Add remote
-git remote add origin https://github.com/NEW_ORG/spark-ai-agents
+git remote add origin https://github.com/seyi/spark-ai-agents
 
 # Commit changes
 git add .
-git commit -m "Migrate from apache/spark to independent repository
+git commit -m "Migrate from seyi/dagens to independent repository
 
-- Update module path from github.com/apache/spark/spark-ai-agents
+- Update module path from github.com/seyi/dagens
 - Update all import statements
 - Fix documentation links
 - Update Python package metadata"
@@ -217,10 +217,10 @@ Create a `MIGRATION_FOR_USERS.md`:
 The spark-ai-agents project has moved to an independent repository.
 
 ## Old Location
-github.com/apache/spark/spark-ai-agents
+github.com/seyi/dagens
 
 ## New Location
-github.com/NEW_ORG/spark-ai-agents
+github.com/seyi/spark-ai-agents
 
 ## Update Your Code
 
@@ -229,15 +229,15 @@ github.com/NEW_ORG/spark-ai-agents
 Update your imports:
 ```go
 // Old
-import "github.com/apache/spark/spark-ai-agents/pkg/agent"
+import "github.com/seyi/dagens/pkg/agent"
 
 // New
-import "github.com/NEW_ORG/spark-ai-agents/pkg/agent"
+import "github.com/seyi/spark-ai-agents/pkg/agent"
 ```
 
 Update go.mod:
 ```bash
-go get github.com/NEW_ORG/spark-ai-agents@latest
+go get github.com/seyi/spark-ai-agents@latest
 go mod tidy
 ```
 
@@ -282,13 +282,13 @@ git reset --hard <commit-before-migration>
 
 # Or restore original remote
 git remote remove origin
-git remote add origin https://github.com/apache/spark
+git remote add origin https://github.com/seyi/dagens
 ```
 
 ## Support
 
 For migration issues:
-- Open an issue at github.com/NEW_ORG/spark-ai-agents/issues
+- Open an issue at github.com/seyi/spark-ai-agents/issues
 - Tag with `migration` label
 
 ## Timeline

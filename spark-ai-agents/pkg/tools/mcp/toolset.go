@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/tools"
+	"github.com/seyi/dagens/pkg/tools"
 )
 
 // MCPToolset wraps an MCP server as a collection of tools.ToolDefinition

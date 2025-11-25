@@ -18,7 +18,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/tools"
+	"github.com/seyi/dagens/pkg/tools"
 )
 
 // DatabaseToolset provides a complete set of database tools for AI agents.

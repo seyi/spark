@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/agents"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/agents"
 )
 
 // Example demonstrating ParallelAgent as an orchestrator with SubAgents

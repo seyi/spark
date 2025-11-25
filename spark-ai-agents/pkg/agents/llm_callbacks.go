@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/model"
+	"github.com/seyi/dagens/pkg/model"
 )
 
 // LLM-specific lifecycle callbacks

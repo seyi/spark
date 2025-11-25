@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/events"
+	"github.com/seyi/dagens/pkg/events"
 )
 
 // TransferScope defines the scope within which agent transfers are allowed

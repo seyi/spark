@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/state"
+	"github.com/seyi/dagens/pkg/state"
 )
 
 // State_Example1_BasicStateOperations demonstrates basic key-value state storage.

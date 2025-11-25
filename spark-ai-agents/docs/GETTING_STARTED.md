@@ -11,8 +11,8 @@ This guide walks you through building production-ready AI agents using the Spark
 
 ```bash
 # Clone the repository
-git clone https://github.com/apache/spark
-cd spark/spark-ai-agents
+git clone https://github.com/seyi/dagens
+cd dagens
 
 # Download dependencies
 go mod download
@@ -33,7 +33,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/apache/spark/spark-ai-agents/pkg/agent"
+    "github.com/seyi/dagens/pkg/agent"
 )
 
 func main() {
@@ -69,8 +69,8 @@ import (
     "context"
     "time"
 
-    "github.com/apache/spark/spark-ai-agents/pkg/agent"
-    "github.com/apache/spark/spark-ai-agents/pkg/resilience"
+    "github.com/seyi/dagens/pkg/agent"
+    "github.com/seyi/dagens/pkg/resilience"
 )
 
 func main() {
@@ -124,7 +124,7 @@ package main
 import (
     "context"
 
-    "github.com/apache/spark/spark-ai-agents/pkg/state"
+    "github.com/seyi/dagens/pkg/state"
 )
 
 func main() {
@@ -167,7 +167,7 @@ import (
     "os"
     "time"
 
-    "github.com/apache/spark/spark-ai-agents/pkg/observability"
+    "github.com/seyi/dagens/pkg/observability"
 )
 
 func main() {

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
+	"github.com/seyi/dagens/pkg/agent"
 )
 
 // EvaluationSet represents a collection of test cases for agent evaluation

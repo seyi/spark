@@ -1,5 +1,5 @@
 """
-Setup script for spark-ai-agents Python package.
+Setup script for dagens Python package.
 
 Install with: pip install -e .
 """
@@ -7,12 +7,12 @@ Install with: pip install -e .
 from setuptools import setup, find_packages
 
 setup(
-    name="spark-ai-agents",
+    name="dagens",
     version="0.1.0",
     author="Apache Spark AI Agents Contributors",
-    author_email="dev@spark.apache.org",
+    author_email="seyi@example.com",
     description="PySpark integration for distributed AI agent execution",
-    url="https://github.com/apache/spark/spark-ai-agents",
+    url="https://github.com/seyi/dagens",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 3 - Alpha",

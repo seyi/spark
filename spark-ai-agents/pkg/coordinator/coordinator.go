@@ -6,15 +6,15 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/events"
-	"github.com/apache/spark/spark-ai-agents/pkg/executor"
-	"github.com/apache/spark/spark-ai-agents/pkg/memory"
-	"github.com/apache/spark/spark-ai-agents/pkg/models"
-	"github.com/apache/spark/spark-ai-agents/pkg/scheduler"
-	"github.com/apache/spark/spark-ai-agents/pkg/sessions"
-	"github.com/apache/spark/spark-ai-agents/pkg/state"
-	"github.com/apache/spark/spark-ai-agents/pkg/tools"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/events"
+	"github.com/seyi/dagens/pkg/executor"
+	"github.com/seyi/dagens/pkg/memory"
+	"github.com/seyi/dagens/pkg/models"
+	"github.com/seyi/dagens/pkg/scheduler"
+	"github.com/seyi/dagens/pkg/sessions"
+	"github.com/seyi/dagens/pkg/state"
+	"github.com/seyi/dagens/pkg/tools"
 )
 
 // SparkAgentCoordinator is the main entry point for distributed AI agent execution

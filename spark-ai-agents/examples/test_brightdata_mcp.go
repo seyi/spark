@@ -21,7 +21,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/tools/mcp"
+	"github.com/seyi/dagens/pkg/tools/mcp"
 )
 
 func main() {

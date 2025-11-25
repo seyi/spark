@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/runtime"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/runtime"
 )
 
 // AggregationType defines how parallel results are combined

@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/runtime"
+	"github.com/seyi/dagens/pkg/runtime"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

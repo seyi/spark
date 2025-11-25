@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/observability"
-	"github.com/apache/spark/spark-ai-agents/pkg/resilience"
+	"github.com/seyi/dagens/pkg/observability"
+	"github.com/seyi/dagens/pkg/resilience"
 )
 
 // ResilientAgentConfig configures resilient agent execution

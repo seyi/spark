@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/rag"
+	"github.com/seyi/dagens/pkg/rag"
 )
 
 // TestRagRetrievalTool tests the RAG retrieval tool

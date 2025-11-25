@@ -25,8 +25,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/resilience"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/resilience"
 )
 
 // Resilience_Example1_ExponentialBackoff demonstrates automatic retry with exponential backoff.

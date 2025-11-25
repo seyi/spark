@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/coordinator"
-	"github.com/apache/spark/spark-ai-agents/pkg/evaluation"
-	"github.com/apache/spark/spark-ai-agents/pkg/scheduler"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/coordinator"
+	"github.com/seyi/dagens/pkg/evaluation"
+	"github.com/seyi/dagens/pkg/scheduler"
 )
 
 func main() {
@@ -63,7 +63,7 @@ Examples:
   spark-agents list-models
   spark-agents metrics
 
-For more information, visit: https://github.com/apache/spark/spark-ai-agents
+For more information, visit: https://github.com/seyi/dagens
 `
 	fmt.Println(usage)
 }

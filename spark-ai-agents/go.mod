@@ -1,4 +1,4 @@
-module github.com/apache/spark/spark-ai-agents
+module github.com/seyi/dagens
 
 go 1.23.0
 

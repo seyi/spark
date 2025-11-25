@@ -24,8 +24,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/grpc"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/grpc"
 )
 
 // Sample agents for testing

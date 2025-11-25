@@ -18,7 +18,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
+	"github.com/seyi/dagens/pkg/agent"
 )
 
 // StreamingRuntime provides real-time event streaming.

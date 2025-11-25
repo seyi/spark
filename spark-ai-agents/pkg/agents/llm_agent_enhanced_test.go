@@ -18,8 +18,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/model"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/model"
 )
 
 // ============================================================================

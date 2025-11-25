@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/events"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/events"
 )
 
 // Test Phase 1: Transfer Tool Functionality

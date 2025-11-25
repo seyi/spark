@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/observability"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/observability"
 )
 
 // LoadTestConfig configures a load test run

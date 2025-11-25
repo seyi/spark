@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/rag"
+	"github.com/seyi/dagens/pkg/rag"
 )
 
 // HybridRagRetrievalConfig configures hybrid RAG retrieval

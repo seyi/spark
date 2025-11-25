@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/executor"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/executor"
 )
 
 // TaskScheduler is responsible for low-level task scheduling and assignment.

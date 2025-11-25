@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/runtime"
+	"github.com/seyi/dagens/pkg/runtime"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )

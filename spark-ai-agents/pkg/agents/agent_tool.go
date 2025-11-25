@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/tools"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/tools"
 )
 
 // AgentTool wraps an agent as a tool that can be called by other agents

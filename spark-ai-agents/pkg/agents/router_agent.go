@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
+	"github.com/seyi/dagens/pkg/agent"
 )
 
 // RouterAgent dynamically routes inputs to different agents based on routing logic

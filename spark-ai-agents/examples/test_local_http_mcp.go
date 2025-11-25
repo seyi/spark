@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/tools/mcp"
+	"github.com/seyi/dagens/pkg/tools/mcp"
 )
 
 // mockHTTPMCPServer creates a local HTTP server that implements MCP protocol

@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"github.com/apache/spark/spark-ai-agents/pkg/events"
+	"github.com/seyi/dagens/pkg/events"
 )
 
 // Context helper functions for state management with event bus integration

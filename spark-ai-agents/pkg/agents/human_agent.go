@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/events"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/events"
 )
 
 // HumanAgent implements the Human-in-the-Loop pattern

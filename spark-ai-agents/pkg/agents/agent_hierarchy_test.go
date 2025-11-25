@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
+	"github.com/seyi/dagens/pkg/agent"
 )
 
 // TestAgentHierarchyBasics tests basic parent-child relationships

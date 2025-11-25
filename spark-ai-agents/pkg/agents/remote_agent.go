@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/a2a"
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
+	"github.com/seyi/dagens/pkg/a2a"
+	"github.com/seyi/dagens/pkg/agent"
 )
 
 // RemoteAgent wraps a remote A2A agent for easy invocation

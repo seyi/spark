@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/events"
+	"github.com/seyi/dagens/pkg/events"
 )
 
 // Test Phase 2: AutoFlow Interceptor and Transfer Execution

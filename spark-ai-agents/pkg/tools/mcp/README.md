@@ -438,7 +438,7 @@ Headers: map[string]string{
 
 ## Examples
 
-See [examples/mcp_tools_example.go](../../../examples/mcp_tools_example.go) for complete examples:
+See [examples/mcp_tools_example.go](../../examples/mcp_tools_example.go) for complete examples:
 
 1. **Basic MCP Tool Usage** - Simple integration
 2. **Multiple Third-Party Tools** - Combine multiple MCP servers
@@ -530,4 +530,4 @@ Apache License 2.0 - See LICENSE file for details.
 - [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
 - [MCP Servers on npm](https://www.npmjs.com/search?q=keywords:mcp-server)
 - [ADK Documentation](https://google.github.io/adk-docs/)
-- [Spark AI Agents Documentation](../../../README.md)
+- [Spark AI Agents Documentation](../../README.md)

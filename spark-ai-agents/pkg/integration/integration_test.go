@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/observability"
-	"github.com/apache/spark/spark-ai-agents/pkg/resilience"
-	"github.com/apache/spark/spark-ai-agents/pkg/state"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/observability"
+	"github.com/seyi/dagens/pkg/resilience"
+	"github.com/seyi/dagens/pkg/state"
 )
 
 // TestAgent is a configurable test agent for integration tests

@@ -26,10 +26,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/agent"
-	"github.com/apache/spark/spark-ai-agents/pkg/model"
-	"github.com/apache/spark/spark-ai-agents/pkg/runtime"
-	"github.com/apache/spark/spark-ai-agents/pkg/tools"
+	"github.com/seyi/dagens/pkg/agent"
+	"github.com/seyi/dagens/pkg/model"
+	"github.com/seyi/dagens/pkg/runtime"
+	"github.com/seyi/dagens/pkg/tools"
 )
 
 // ============================================================================

@@ -22,8 +22,8 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/apache/spark/spark-ai-agents/pkg/runtime"
-	"github.com/apache/spark/spark-ai-agents/pkg/runtime/services"
+	"github.com/seyi/dagens/pkg/runtime"
+	"github.com/seyi/dagens/pkg/runtime/services"
 )
 
 func main() {
